@@ -5,6 +5,7 @@ using JobHunterAI.Application.Generation;
 using JobHunterAI.Application.Jobs;
 using JobHunterAI.Api;
 using JobHunterAI.Infrastructure;
+using JobHunterAI.Infrastructure.JobProviders;
 using MediatR;
 using Serilog;
 
@@ -33,6 +34,12 @@ builder.Services.AddAutoMapper(config =>
 }, typeof(ApplicationMappingProfile));
 builder.Services.AddTransient<IResumeDraftingService, UnavailableResumeDraftingService>();
 builder.Services.AddTransient<ICoverLetterDraftingService, UnavailableCoverLetterDraftingService>();
+builder.Services.AddHttpClient<IJobProvider, GreenhouseProvider>(client =>
+    client.BaseAddress = new Uri("https://boards-api.greenhouse.io/v1/"));
+builder.Services.AddHttpClient<IJobProvider, LeverProvider>(client =>
+    client.BaseAddress = new Uri("https://api.lever.co/"));
+builder.Services.AddHttpClient<IJobProvider, AshbyProvider>(client =>
+    client.BaseAddress = new Uri("https://api.ashbyhq.com/posting-api/"));
 builder.Services.AddOptions<JobHunterOptions>()
     .Bind(builder.Configuration.GetSection(JobHunterOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.DisplayName), "JobHunterAI:DisplayName is required.")
