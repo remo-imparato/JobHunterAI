@@ -23,6 +23,7 @@
     <ProjectReference Include="..\JobHunterAI.Application\JobHunterAI.Application.csproj" />
     <ProjectReference Include="..\JobHunterAI.Domain\JobHunterAI.Domain.csproj" />
     <ProjectReference Include="..\JobHunterAI.Automation\JobHunterAI.Automation.csproj" />
+    <ProjectReference Include="..\JobHunterAI.Web\JobHunterAI.Web.csproj" />
   </ItemGroup>
 
 </Project>

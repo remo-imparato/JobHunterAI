@@ -1,6 +1,12 @@
 # JobHunterAI
 
-JobHunterAI is a .NET 10 solution for a job search and application assistant. **Phases 1–15** include the solution foundation, domain and PostgreSQL persistence, CQRS handlers, job providers, resume ingestion, typed AI services, document generation, approval-gated browser assistance, a MudBlazor Server dashboard, opt-in Hangfire background processing, and observability. The pre-existing `JobHunter/` project is not included in the solution.
+JobHunterAI is a .NET 10 solution for a job search and application assistant. **Phases 1–16** include the solution foundation, domain and PostgreSQL persistence, CQRS handlers, job providers, resume ingestion, typed AI services, document generation, approval-gated browser assistance, a MudBlazor Server dashboard, opt-in Hangfire background processing, observability, and a measured regression suite. The pre-existing `JobHunter/` project is not included in the solution.
+
+## Phase 16 testing and coverage
+
+Run `powershell -NoProfile -File scripts/Test-Coverage.ps1` from the repository root. The script runs both xUnit projects using the existing Coverlet collector, merges hits by assembly/source file/line, verifies that all seven production assemblies are represented, and fails if aggregate line coverage is below 80%. Each run writes Cobertura reports and `summary.json` to a new ignored `artifacts/coverage/<run-id>` directory, preventing stale results from satisfying the gate. This is a line-coverage target, not a branch-coverage or per-assembly threshold. Only test assemblies, generated migration files, and generated `obj` C# files are excluded; handwritten Razor and browser automation code remain in scope.
+
+Measured aggregate coverage: **80.78% (2761/3418 lines)**. Assembly breakdown: Domain 86.92%, Application 81.10%, Infrastructure 82.70%, AI 91.76%, Automation 87.38%, API 75.92%, Web 36.33%. The suite includes unit, API integration, provider HTTP-fake, repository/query, AI completion-mock, Web-client and server-rendered component tests. External service tests do not send real requests or incur AI costs. Repository query tests run Npgsql SQL translation with intercepted empty results and verify pagination/parameters/tracking; they do **not** validate PostgreSQL execution, migrations, constraints or concurrency against a live server. Blazor HtmlRenderer tests cover server-rendered pages and summary states, not interactive table callbacks or browser JavaScript. Real Chromium flows, live Hangfire storage and PostgreSQL-backed end-to-end testing remain separate validation work. No coverage percentage implies those integrations have been verified.
 
 ## Prerequisites
 
