@@ -43,7 +43,11 @@ public sealed record DetectedField(
     int? MaxLength,
     IReadOnlyList<string> Options);
 
-public sealed record AuditEntry(DateTimeOffset At, string Step, string Detail);
+public sealed record AuditEntry(DateTimeOffset At, string Step, string Detail)
+{
+    public string? TraceId { get; init; }
+    public string? CorrelationId { get; init; }
+}
 
 public interface IAutomationAuditLog
 {

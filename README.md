@@ -1,6 +1,6 @@
 # JobHunterAI
 
-JobHunterAI is a .NET 10 solution for a job search and application assistant. **Phases 1–14** include the solution foundation, domain and PostgreSQL persistence, CQRS handlers, job providers, resume ingestion, typed AI services, document generation, approval-gated browser assistance, a MudBlazor Server dashboard, and opt-in Hangfire background processing. The pre-existing `JobHunter/` project is not included in the solution.
+JobHunterAI is a .NET 10 solution for a job search and application assistant. **Phases 1–15** include the solution foundation, domain and PostgreSQL persistence, CQRS handlers, job providers, resume ingestion, typed AI services, document generation, approval-gated browser assistance, a MudBlazor Server dashboard, opt-in Hangfire background processing, and observability. The pre-existing `JobHunter/` project is not included in the solution.
 
 ## Prerequisites
 
@@ -57,6 +57,16 @@ Monitoring reports **recorded internal application statuses only**, without chan
 Log cleanup is a no-op until an absolute `Background:LogDirectory` is configured. Use a dedicated owned directory. It deletes only top-level `jobhunterai-*.log` files older than `LogRetentionDays` (default 30), bounded by `BatchSize`; symlinks/junctions and nested files are excluded. Existing console logs are not files and are not deleted. Screenshots, Hangfire history, and application audit records are not removed by this job. Live worker/storage validation requires PostgreSQL; automated tests cover configuration, schedule registration, disabled behavior and retention without a live database.
 
 **Candidate selection is not authorization.** Authentication and ownership enforcement are not implemented. Keep both hosts on a trusted local/private network and do not expose these endpoints with real candidate data until access control is added. Database-backed operation requires the existing PostgreSQL migrations and API connection configuration. In non-development environments, configure `Api__BaseUrl`; missing configuration intentionally prevents Web startup.
+
+## Phase 15 observability
+
+Both hosts write JSON console logs with structured properties. HTTP completion events record method, route template, status and elapsed milliseconds, not bodies or query strings. Requests accept `X-Correlation-ID` containing 1–64 ASCII letters, digits, hyphens or underscores; invalid/multiple values are replaced. The ID is returned in the response and included with trace/span identifiers in request logging scopes. API exception responses include `correlationId` and `traceId` without exception details. Standard .NET HTTP activities propagate W3C trace context on outgoing requests.
+
+Both hosts expose `/health` and `/health/live` as independent liveness endpoints. `/health/ready` checks PostgreSQL in the API and API readiness in Web, with a five-second check timeout. Readiness returns generic Healthy/Unhealthy responses and HTTP 503 on failure, not connection details. Configure orchestrator probes to use readiness for traffic routing and liveness for process checks. These checks do not verify database migrations, AI credentials, or Hangfire worker health.
+
+The built-in `JobHunterAI` meter publishes `jobhunter.http.requests`, `jobhunter.http.duration` (seconds), `jobhunter.operations`, and `jobhunter.operation.duration` (seconds). Operation categories are `cqrs`, `ai`, and `background`; tags use operation names/outcomes and route templates, not candidate IDs or raw URLs. AI operations measure each attempt (including retry backoff on failed attempts). CQRS success means the handler returned, not necessarily a successful business Result. The `JobHunterAI` ActivitySource provides CQRS, AI and background spans to attached listeners; ASP.NET Core supplies HTTP spans. Attach a .NET diagnostics collector/MeterListener to consume these instruments. No exporter, collector backend, public metrics endpoint, or additional telemetry package is installed.
+
+AI logs contain operation, attempt, duration, outcome and safe failure type; prompts, replies, credentials and provider exception messages are excluded from these logs. Global unhandled-error logging likewise records exception type and route rather than exception content. Automation audit snapshots carry trace/correlation metadata; operational audit events omit free-text details that may contain employer field labels or filenames. Existing domain approval/status events and candidate AgentExecution rows remain the durable audit records. Automation review details remain scoped in-memory snapshots, not a new durable audit store; use a secured external log sink and retention policy for operational records. Existing framework/provider logs should still be reviewed and filtered by deployment logging policy before production use.
 
 ## Host configuration
 

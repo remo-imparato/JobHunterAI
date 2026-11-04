@@ -22,7 +22,8 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
 
         if (status == StatusCodes.Status500InternalServerError)
         {
-            logger.LogError(exception, "Unhandled request failure for {Path}", httpContext.Request.Path.Value);
+            logger.LogError("Unhandled request failure ({ErrorType}) for endpoint {Endpoint}",
+                exception.GetType().Name, (httpContext.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText ?? "unmatched");
         }
 
         httpContext.Response.StatusCode = status;
@@ -34,7 +35,9 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                 StatusCodes.Status400BadRequest => "Request validation failed.",
                 StatusCodes.Status409Conflict => "The resource could not be saved due to a conflict.",
                 _ => "An unexpected error occurred."
-            }
+            },
+            Extensions = { ["correlationId"] = httpContext.TraceIdentifier,
+                ["traceId"] = System.Diagnostics.Activity.Current?.TraceId.ToString() ?? httpContext.TraceIdentifier }
         }, cancellationToken);
 
         return true;

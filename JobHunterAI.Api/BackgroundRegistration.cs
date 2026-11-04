@@ -3,24 +3,44 @@ using Hangfire.Common;
 using Hangfire.PostgreSql;
 using JobHunterAI.Infrastructure.Background;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
+using JobHunterAI.Application.Common;
 
 namespace JobHunterAI.Api;
 
 [AutomaticRetry(Attempts = 0)]
-public sealed class ScheduledJobs(BackgroundJobs jobs)
+public sealed class ScheduledJobs(BackgroundJobs jobs, ILogger<ScheduledJobs> logger)
 {
     [DisableConcurrentExecution(60)]
-    public Task DiscoverJobsAsync(CancellationToken token) => jobs.DiscoverJobsAsync(token);
+    public Task DiscoverJobsAsync(CancellationToken token) => RunAsync("DiscoverJobs", jobs.DiscoverJobsAsync, token);
     [DisableConcurrentExecution(60)]
-    public Task RefreshMatchScoresAsync(CancellationToken token) => jobs.RefreshMatchScoresAsync(token);
+    public Task RefreshMatchScoresAsync(CancellationToken token) => RunAsync("RefreshMatchScores", jobs.RefreshMatchScoresAsync, token);
     [DisableConcurrentExecution(60)]
-    public Task GenerateResumeVariantsAsync(CancellationToken token) => jobs.GenerateResumeVariantsAsync(token);
+    public Task GenerateResumeVariantsAsync(CancellationToken token) => RunAsync("GenerateResumeVariants", jobs.GenerateResumeVariantsAsync, token);
     [DisableConcurrentExecution(60)]
-    public Task CleanupLogsAsync(CancellationToken token) => jobs.CleanupLogsAsync(token);
+    public Task CleanupLogsAsync(CancellationToken token) => RunAsync("CleanupLogs", jobs.CleanupLogsAsync, token);
     [DisableConcurrentExecution(60)]
-    public Task MonitorApplicationsAsync(CancellationToken token) => jobs.MonitorApplicationsAsync(token);
+    public Task MonitorApplicationsAsync(CancellationToken token) => RunAsync("MonitorApplications", jobs.MonitorApplicationsAsync, token);
     [DisableConcurrentExecution(60)]
-    public Task DailySummaryAsync(CancellationToken token) => jobs.DailySummaryAsync(token);
+    public Task DailySummaryAsync(CancellationToken token) => RunAsync("DailySummary", jobs.DailySummaryAsync, token);
+
+    private async Task RunAsync(string operation, Func<CancellationToken, Task> action, CancellationToken token)
+    {
+        using Activity? activity = JobHunterDiagnostics.Activities.StartActivity("Background " + operation, ActivityKind.Consumer);
+        using var scope = logger.BeginScope(new Dictionary<string, object?> { ["CorrelationId"] = Guid.NewGuid().ToString("N"),
+            ["TraceId"] = Activity.Current?.TraceId.ToString(), ["Operation"] = operation });
+        long started = Stopwatch.GetTimestamp();
+        string outcome = "success";
+        try { await action(token); }
+        catch (OperationCanceledException) { outcome = "cancelled"; throw; }
+        catch { outcome = "failure"; activity?.SetStatus(ActivityStatusCode.Error); throw; }
+        finally
+        {
+            TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
+            JobHunterDiagnostics.RecordOperation("background", operation, outcome, elapsed);
+            logger.LogInformation("Background {Operation} completed with {Outcome} in {ElapsedMs} ms", operation, outcome, elapsed.TotalMilliseconds);
+        }
+    }
 }
 
 public static class BackgroundRegistration

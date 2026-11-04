@@ -1,4 +1,5 @@
 using System.Text;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -7,13 +8,24 @@ namespace JobHunterAI.Automation;
 public sealed class AutomationAuditLog(ILogger<AutomationAuditLog> logger) : IAutomationAuditLog
 {
     private readonly List<AuditEntry> _entries = [];
+    private readonly object _gate = new();
 
-    public IReadOnlyList<AuditEntry> Entries => _entries;
+    public IReadOnlyList<AuditEntry> Entries
+    {
+        get { lock (_gate) { return _entries.ToArray(); } }
+    }
 
     public void Record(string step, string detail)
     {
-        _entries.Add(new AuditEntry(DateTimeOffset.UtcNow, step, detail));
-        logger.LogInformation("Automation {Step}: {Detail}", step, detail);
+        AuditEntry entry = new(DateTimeOffset.UtcNow, step, detail)
+        {
+            TraceId = Activity.Current?.TraceId.ToString(),
+            CorrelationId = Activity.Current?.GetTagItem("jobhunter.correlation_id") as string
+        };
+        lock (_gate) { _entries.Add(entry); }
+        // Details can contain employer field labels or filenames; keep them out of operational logs.
+        logger.LogInformation("Automation audit {Step} at {AuditAt}, trace {TraceId}, correlation {CorrelationId}",
+            step, entry.At, entry.TraceId, entry.CorrelationId);
     }
 }
 

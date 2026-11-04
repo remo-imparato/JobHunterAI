@@ -9,6 +9,9 @@ using JobHunterAI.Infrastructure;
 using JobHunterAI.Infrastructure.JobProviders;
 using MediatR;
 using Serilog;
+using JobHunterAI.Observability;
+using JobHunterAI.Api.Observability;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -16,14 +19,15 @@ builder.Host.UseSerilog((context, services, configuration) => configuration
     .ReadFrom.Configuration(context.Configuration)
     .ReadFrom.Services(services)
     .Enrich.FromLogContext()
-    .WriteTo.Console());
+    .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()));
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks().AddCheck<DatabaseReadinessCheck>("postgresql", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
 builder.Services.AddOpenApi();
 builder.Services.AddMediatR(config => config.RegisterServicesFromAssembly(typeof(GetJobsHandler).Assembly));
 builder.Services.AddValidatorsFromAssemblyContaining<GetJobsValidator>();
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(PerformanceBehavior<,>));
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 builder.Services.AddAutoMapper(config =>
 {
@@ -58,6 +62,7 @@ if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("Databas
         scope.ServiceProvider.GetRequiredService<JobHunterDbContext>(), app.Logger, app.Lifetime.ApplicationStopping);
 }
 
+app.UseMiddleware<RequestTelemetryMiddleware>();
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
@@ -67,7 +72,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapDashboardEndpoints();
 
 app.Run();
