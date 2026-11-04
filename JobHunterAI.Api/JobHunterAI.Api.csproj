@@ -17,6 +17,7 @@
     <ProjectReference Include="..\JobHunterAI.Application\JobHunterAI.Application.csproj" />
     <ProjectReference Include="..\JobHunterAI.Infrastructure\JobHunterAI.Infrastructure.csproj" />
     <ProjectReference Include="..\JobHunterAI.AI\JobHunterAI.AI.csproj" />
+    <ProjectReference Include="..\JobHunterAI.Automation\JobHunterAI.Automation.csproj" />
   </ItemGroup>
 
 </Project>

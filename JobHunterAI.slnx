@@ -2,6 +2,7 @@
   <Project Path="JobHunterAI.AI/JobHunterAI.AI.csproj" />
   <Project Path="JobHunterAI.Api/JobHunterAI.Api.csproj" />
   <Project Path="JobHunterAI.Application/JobHunterAI.Application.csproj" />
+  <Project Path="JobHunterAI.Automation/JobHunterAI.Automation.csproj" />
   <Project Path="JobHunterAI.Domain/JobHunterAI.Domain.csproj" />
   <Project Path="JobHunterAI.Infrastructure/JobHunterAI.Infrastructure.csproj" />
   <Project Path="JobHunterAI.IntegrationTests/JobHunterAI.IntegrationTests.csproj" />
