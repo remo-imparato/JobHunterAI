@@ -32,6 +32,7 @@ builder.Services.AddAutoMapper(config =>
         config.LicenseKey = licenseKey;
     }
 }, typeof(ApplicationMappingProfile));
+builder.Services.AddJobHunterAi(builder.Configuration);
 builder.Services.AddTransient<IResumeDraftingService, UnavailableResumeDraftingService>();
 builder.Services.AddTransient<ICoverLetterDraftingService, UnavailableCoverLetterDraftingService>();
 builder.Services.AddHttpClient<IJobProvider, GreenhouseProvider>(client =>
