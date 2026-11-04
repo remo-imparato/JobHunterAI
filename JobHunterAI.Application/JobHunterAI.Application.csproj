@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\JobHunterAI.Domain\JobHunterAI.Domain.csproj" />
+  </ItemGroup>
+
 </Project>

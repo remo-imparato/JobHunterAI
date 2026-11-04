@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,6 +16,12 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JobHunterAI.Api\JobHunterAI.Api.csproj" />
+    <ProjectReference Include="..\JobHunterAI.Application\JobHunterAI.Application.csproj" />
+    <ProjectReference Include="..\JobHunterAI.Domain\JobHunterAI.Domain.csproj" />
   </ItemGroup>
 
 </Project>

@@ -8,6 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="7.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\JobHunterAI.Application\JobHunterAI.Application.csproj" />
+    <ProjectReference Include="..\JobHunterAI.Infrastructure\JobHunterAI.Infrastructure.csproj" />
+    <ProjectReference Include="..\JobHunterAI.AI\JobHunterAI.AI.csproj" />
   </ItemGroup>
 
 </Project>
