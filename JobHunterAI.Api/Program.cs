@@ -1,4 +1,5 @@
 using JobHunterAI.Api;
+using JobHunterAI.Infrastructure;
 using Serilog;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -17,8 +18,17 @@ builder.Services.AddOptions<JobHunterOptions>()
     .Bind(builder.Configuration.GetSection(JobHunterOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.DisplayName), "JobHunterAI:DisplayName is required.")
     .ValidateOnStart();
+builder.Services.AddInfrastructure(builder.Configuration.GetConnectionString("JobHunterAI")
+    ?? throw new InvalidOperationException("ConnectionStrings:JobHunterAI must be configured."));
 
 WebApplication app = builder.Build();
+
+if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("Database:SeedDevelopmentData"))
+{
+    await using AsyncServiceScope scope = app.Services.CreateAsyncScope();
+    await DevelopmentDataSeeder.SeedAsync(
+        scope.ServiceProvider.GetRequiredService<JobHunterDbContext>(), app.Logger, app.Lifetime.ApplicationStopping);
+}
 
 app.UseExceptionHandler();
 

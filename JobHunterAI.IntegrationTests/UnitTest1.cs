@@ -9,10 +9,18 @@ namespace JobHunterAI.IntegrationTests;
 
 public sealed class ApiFoundationTests
 {
+    private sealed class ApiFactory : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseSetting("ConnectionStrings:JobHunterAI", "Host=localhost;Database=tests;Username=tests");
+        }
+    }
+
     [Fact]
     public async Task HealthEndpoint_ReturnsHealthy()
     {
-        using WebApplicationFactory<Program> factory = new();
+        using WebApplicationFactory<Program> factory = new ApiFactory();
         using HttpClient client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             AllowAutoRedirect = false
@@ -27,7 +35,7 @@ public sealed class ApiFoundationTests
     [Fact]
     public async Task OpenApi_IsOnlyAvailableInDevelopment()
     {
-        using WebApplicationFactory<Program> factory = new();
+        using WebApplicationFactory<Program> factory = new ApiFactory();
         using WebApplicationFactory<Program> development = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
         using WebApplicationFactory<Program> production = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
 
@@ -43,7 +51,7 @@ public sealed class ApiFoundationTests
     [Fact]
     public void MissingDisplayName_FailsOptionsValidation()
     {
-        using WebApplicationFactory<Program> factory = new();
+        using WebApplicationFactory<Program> factory = new ApiFactory();
         using WebApplicationFactory<Program> invalid = factory.WithWebHostBuilder(builder =>
             builder.UseSetting("JobHunterAI:DisplayName", " "));
 
