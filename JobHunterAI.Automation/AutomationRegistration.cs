@@ -18,6 +18,7 @@ public static class AutomationRegistration
         services.AddSingleton<QuestionDetectionService>();
         services.AddScoped<ResumeUploadService>();
         services.AddScoped<ApplicationWorkflow>();
+        services.AddScoped<ApplicationAgent>();
         return services;
     }
 }

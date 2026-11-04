@@ -30,6 +30,12 @@ public sealed class ApplicationWorkflow(
 {
     public async Task<ApplicationSession> PrepareAsync(
         JobPosting job, CandidateProfile candidate, ApplicationDocuments documents, CancellationToken cancellationToken = default)
+        => await PrepareForReviewAsync(job, candidate, documents, null, cancellationToken);
+
+    internal async Task<ApplicationSession> PrepareForReviewAsync(
+        JobPosting job, CandidateProfile candidate, ApplicationDocuments documents,
+        Func<IApplicationPage, IReadOnlyList<DetectedField>, CancellationToken, Task>? suggestAnswers,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(candidate);
@@ -62,6 +68,12 @@ public sealed class ApplicationWorkflow(
                 }
             }
 
+            IReadOnlyList<DetectedField> questions = questionDetection.FindQuestionFields(fields);
+            if (suggestAnswers is not null)
+            {
+                await suggestAnswers(page, questions, cancellationToken);
+            }
+
             if (documents.ResumePath is not null)
             {
                 await uploads.UploadAsync(page, fields, documents.ResumePath, "resume", cancellationToken);
@@ -73,7 +85,6 @@ public sealed class ApplicationWorkflow(
             }
 
             shots.Add(await screenshots.SaveAsync("prepared", await page.ScreenshotAsync(cancellationToken), cancellationToken));
-            IReadOnlyList<DetectedField> questions = questionDetection.FindQuestionFields(fields);
             audit.Record("Review", $"Prepared page with {questions.Count} questions awaiting user review. Nothing was submitted.");
             return new ApplicationSession(page, fields, questions, shots);
         }

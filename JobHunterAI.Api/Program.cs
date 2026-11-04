@@ -36,7 +36,7 @@ builder.Services.AddAutoMapper(config =>
 builder.Services.AddJobHunterAi(builder.Configuration);
 builder.Services.AddJobHunterAutomation(builder.Configuration);
 builder.Services.AddHttpClient<IJobProvider, GreenhouseProvider>(client =>
-    client.BaseAddress = new Uri("https://boards-api.greenhouse.io/v1/"));
+    client.BaseAddress = new Uri("https://job-boards.greenhouse.io/v1"));
 builder.Services.AddHttpClient<IJobProvider, LeverProvider>(client =>
     client.BaseAddress = new Uri("https://api.lever.co/"));
 builder.Services.AddHttpClient<IJobProvider, AshbyProvider>(client =>
