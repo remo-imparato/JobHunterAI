@@ -33,7 +33,6 @@ builder.Services.AddAutoMapper(config =>
     }
 }, typeof(ApplicationMappingProfile));
 builder.Services.AddJobHunterAi(builder.Configuration);
-builder.Services.AddTransient<ICoverLetterDraftingService, UnavailableCoverLetterDraftingService>();
 builder.Services.AddHttpClient<IJobProvider, GreenhouseProvider>(client =>
     client.BaseAddress = new Uri("https://boards-api.greenhouse.io/v1/"));
 builder.Services.AddHttpClient<IJobProvider, LeverProvider>(client =>

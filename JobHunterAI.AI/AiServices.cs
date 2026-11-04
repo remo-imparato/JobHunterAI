@@ -85,6 +85,14 @@ internal static class AiValidation
         return result;
     }
 
+    public static string ToneGuidance(CoverLetterTone tone) => tone switch
+    {
+        CoverLetterTone.Executive => "Tone: executive - confident, strategic, outcome-focused.",
+        CoverLetterTone.Warm => "Tone: warm - personable and enthusiastic while staying professional.",
+        CoverLetterTone.Direct => "Tone: direct - brief, plain and to the point.",
+        _ => "Tone: professional - polished and measured."
+    };
+
     public static string Required(string? value, string name) =>
         !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new AiResponseException($"The AI reply is missing {name}.");
 }
@@ -155,8 +163,9 @@ public sealed class CoverLetterService(StructuredAiClient client) : ICoverLetter
         ArgumentNullException.ThrowIfNull(job);
         ArgumentNullException.ThrowIfNull(company);
         string system =
-            "You write a concise cover letter. " + AiPromptData.UntrustedDataRule + " " + AiPromptData.TruthRule +
-            " JSON shape: {\"contentMarkdown\":string}.";
+            "You write a professional, executive-level cover letter of 250-400 words addressed to the hiring team, signed with the candidate's full name. " +
+            AiPromptData.UntrustedDataRule + " " + AiPromptData.TruthRule + " " + AiValidation.ToneGuidance(tone) +
+            " Do not use placeholders such as [Your Name]. JSON shape: {\"contentMarkdown\":string}.";
         string user = AiJson.Serialize(new
         {
             tone = tone.ToString(),
@@ -166,7 +175,12 @@ public sealed class CoverLetterService(StructuredAiClient client) : ICoverLetter
         });
         Reply reply = await client.RequestAsync<Reply>("CoverLetter", system, user, r =>
         {
-            AiValidation.Required(r.ContentMarkdown, "contentMarkdown");
+            string text = AiValidation.Required(r.ContentMarkdown, "contentMarkdown");
+            if (text.Contains("[Your", StringComparison.OrdinalIgnoreCase) || text.Contains("[Company", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new AiResponseException("The AI reply contains unresolved placeholders.");
+            }
+
             return r;
         }, cancellationToken);
         return new CoverLetterResult(reply.ContentMarkdown!.Trim());

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using JobHunterAI.Application.AI;
 using JobHunterAI.Domain;
 
 namespace JobHunterAI.AI;
@@ -12,6 +13,7 @@ public sealed class AiOptions
     public string? ApiKey { get; set; }
     public string? DeploymentName { get; set; }
     public int MaxAttempts { get; set; } = 3;
+    public CoverLetterTone CoverLetterTone { get; set; } = CoverLetterTone.Executive;
     public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromSeconds(1);
 
     public bool IsConfigured =>

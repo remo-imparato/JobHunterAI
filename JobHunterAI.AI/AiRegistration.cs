@@ -42,11 +42,13 @@ public static class DependencyInjection
             services.AddAzureOpenAIChatCompletion(options.DeploymentName!, options.Endpoint!, options.ApiKey!);
             services.TryAddSingleton<IAiTextCompletion, SemanticKernelTextCompletion>();
             services.TryAddTransient<IResumeDraftingService, AiResumeDraftingService>();
+            services.TryAddTransient<ICoverLetterDraftingService, AiCoverLetterDraftingService>();
         }
         else
         {
             services.TryAddSingleton<IAiTextCompletion, UnconfiguredTextCompletion>();
             services.TryAddTransient<IResumeDraftingService, UnavailableResumeDraftingService>();
+            services.TryAddTransient<ICoverLetterDraftingService, UnavailableCoverLetterDraftingService>();
         }
 
         services.TryAddSingleton<IResumeDocumentRenderer, ResumeDocumentRenderer>();
