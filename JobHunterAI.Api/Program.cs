@@ -47,6 +47,7 @@ builder.Services.AddOptions<JobHunterOptions>()
     .ValidateOnStart();
 builder.Services.AddInfrastructure(builder.Configuration.GetConnectionString("JobHunterAI")
     ?? throw new InvalidOperationException("ConnectionStrings:JobHunterAI must be configured."));
+builder.Services.AddBackgroundProcessing(builder.Configuration);
 
 WebApplication app = builder.Build();
 
