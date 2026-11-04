@@ -144,6 +144,15 @@ internal static class ModelConfiguration
             entity.Property(x => x.Description).HasMaxLength(500).IsRequired();
             entity.HasIndex(x => new { x.ApplicationId, x.OccurredAt });
         });
+        modelBuilder.Entity<JobMatchScore>(entity =>
+        {
+            entity.ToTable("job_match_scores");
+            entity.HasKey(x => x.Id);
+            entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(x => x.CandidateProfileId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<JobPosting>().WithMany().HasForeignKey(x => x.JobPostingId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(x => new { x.CandidateProfileId, x.JobPostingId, x.ScoredAt });
+            entity.HasIndex(x => x.JobPostingId);
+        });
         modelBuilder.Entity<AgentExecution>(entity =>
         {
             entity.ToTable("agent_executions");

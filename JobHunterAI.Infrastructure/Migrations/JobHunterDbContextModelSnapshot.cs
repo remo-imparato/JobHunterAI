@@ -296,6 +296,49 @@ namespace JobHunterAI.Infrastructure.Migrations
                     b.ToTable("education_records", "public");
                 });
 
+            modelBuilder.Entity("JobHunterAI.Domain.JobMatchScore", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CandidateProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("JobPostingId")
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<string[]>("RecommendedKeywords")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("RiskFactors")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<int>("Score")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("ScoredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<string[]>("Strengths")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("Weaknesses")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobPostingId");
+
+                    b.HasIndex("CandidateProfileId", "JobPostingId", "ScoredAt");
+
+                    b.ToTable("job_match_scores", "public");
+                });
+
             modelBuilder.Entity("JobHunterAI.Domain.JobPosting", b =>
                 {
                     b.Property<Guid>("Id")
@@ -559,6 +602,21 @@ namespace JobHunterAI.Infrastructure.Migrations
                     b.HasOne("JobHunterAI.Domain.CandidateProfile", null)
                         .WithMany("EducationRecords")
                         .HasForeignKey("CandidateProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JobHunterAI.Domain.JobMatchScore", b =>
+                {
+                    b.HasOne("JobHunterAI.Domain.CandidateProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CandidateProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("JobHunterAI.Domain.JobPosting", null)
+                        .WithMany()
+                        .HasForeignKey("JobPostingId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

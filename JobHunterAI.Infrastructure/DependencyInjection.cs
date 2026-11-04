@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<IRepository<CoverLetter>, EfRepository<CoverLetter>>();
         services.AddScoped<IRepository<DomainApplication>, EfRepository<DomainApplication>>();
         services.AddScoped<IRepository<AgentExecution>, EfRepository<AgentExecution>>();
+        services.AddScoped<IRepository<JobMatchScore>, EfRepository<JobMatchScore>>();
         return services;
     }
 }
