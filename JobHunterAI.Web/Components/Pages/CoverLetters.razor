@@ -1,0 +1,5 @@
+@page "/cover-letters"
+<PageTitle>Cover Letters — JobHunterAI</PageTitle>
+<MudText Typo="Typo.h4" Component="h1" Class="mb-4">Cover Letters</MudText>
+<ResourceTable Resource="DashboardResource.CoverLetters" Filters="@Providers" />
+@code { private static readonly string[] Providers = ["Greenhouse", "Lever", "Ashby"]; }

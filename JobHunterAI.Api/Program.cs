@@ -67,6 +67,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.MapHealthChecks("/health");
+app.MapDashboardEndpoints();
 
 app.Run();
 

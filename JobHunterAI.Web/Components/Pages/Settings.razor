@@ -1,0 +1,37 @@
+@page "/settings"
+@inject DashboardPreferences Preferences
+<PageTitle>Settings — JobHunterAI</PageTitle>
+<MudText Typo="Typo.h4" Component="h1" Class="mb-4">Settings</MudText>
+<MudAlert Severity="Severity.Warning" Class="mb-4">Candidate selection is not authentication. Use this dashboard only in a trusted environment until authentication and authorization are configured.</MudAlert>
+<MudText Class="mb-4">Preferences apply to this browser circuit only. Obtain the candidate ID from your seeded or imported profile. No credentials are stored here.</MudText>
+<MudTextField T="string" Label="Candidate ID" @bind-Value="_candidateId" MaxLength="36" Class="mb-4" />
+<MudSelect T="int" Label="Default page size" @bind-Value="_pageSize" Class="mb-4">
+    <MudSelectItem T="int" Value="10">10</MudSelectItem>
+    <MudSelectItem T="int" Value="25">25</MudSelectItem>
+    <MudSelectItem T="int" Value="50">50</MudSelectItem>
+    <MudSelectItem T="int" Value="100">100</MudSelectItem>
+</MudSelect>
+<MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save preferences</MudButton>
+@if (_message is not null)
+{
+    <MudAlert Severity="@(_valid ? Severity.Success : Severity.Error)" Class="mt-4">@_message</MudAlert>
+}
+@code {
+    private string _candidateId = string.Empty;
+    private int _pageSize;
+    private bool _valid;
+    private string? _message;
+    protected override void OnInitialized()
+    {
+        _candidateId = Preferences.CandidateId == Guid.Empty ? string.Empty : Preferences.CandidateId.ToString();
+        _pageSize = Preferences.PageSize;
+    }
+    private void Save()
+    {
+        _valid = Guid.TryParse(_candidateId, out Guid id) && id != Guid.Empty;
+        if (!_valid) { _message = "Enter a valid, nonempty candidate ID."; return; }
+        Preferences.CandidateId = id;
+        Preferences.PageSize = _pageSize;
+        _message = "Preferences saved for this circuit. Open a dashboard page to load your data.";
+    }
+}

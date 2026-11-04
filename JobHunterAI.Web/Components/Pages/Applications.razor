@@ -1,0 +1,5 @@
+@page "/applications"
+<PageTitle>Applications — JobHunterAI</PageTitle>
+<MudText Typo="Typo.h4" Component="h1" Class="mb-4">Applications</MudText>
+<ResourceTable Resource="DashboardResource.Applications" Filters="@Statuses" />
+@code { private static readonly string[] Statuses = Enum.GetNames<JobHunterAI.Domain.ApplicationStatus>(); }

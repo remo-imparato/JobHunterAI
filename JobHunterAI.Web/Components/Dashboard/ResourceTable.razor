@@ -1,0 +1,84 @@
+@implements IDisposable
+@inject DashboardClient Client
+@inject DashboardPreferences Preferences
+@inject ILogger<ResourceTable> Logger
+
+@if (Preferences.CandidateId == Guid.Empty)
+{
+    <MudAlert Severity="Severity.Info">Select a candidate ID in <MudLink Href="/settings">Settings</MudLink> to load data.</MudAlert>
+}
+else
+{
+    <MudStack Row="true" Class="mb-4" AlignItems="AlignItems.Center">
+        <MudTextField T="string" Label="Search" @bind-Value="_search" MaxLength="200" />
+        <MudSelect T="string" Label="Filter" @bind-Value="_filter">
+            <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+            @foreach (string filter in Filters)
+            {
+                <MudSelectItem T="string" Value="@filter">@filter</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchAsync">Search</MudButton>
+    </MudStack>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">@_error <MudButton OnClick="SearchAsync">Retry</MudButton></MudAlert>
+    }
+    <MudTable T="DashboardRow" @ref="_table" ServerData="LoadAsync" RowsPerPage="Preferences.PageSize" Hover="true" Breakpoint="Breakpoint.Sm">
+        <HeaderContent>
+            <MudTh>Title</MudTh><MudTh>Details</MudTh><MudTh>Status</MudTh><MudTh>Date (UTC)</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Title">@context.Title</MudTd>
+            <MudTd DataLabel="Details">@context.Detail</MudTd>
+            <MudTd DataLabel="Status">@context.Status</MudTd>
+            <MudTd DataLabel="Date (UTC)">@context.Date?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</MudTd>
+        </RowTemplate>
+        <NoRecordsContent><MudText>@(_error is null ? "No matching records." : "Data could not be loaded.")</MudText></NoRecordsContent>
+        <LoadingContent><MudText>Loading records…</MudText></LoadingContent>
+        <PagerContent><MudTablePager PageSizeOptions="@(new[] { 10, 25, 50, 100 })" /></PagerContent>
+    </MudTable>
+}
+
+@code {
+    [Parameter, EditorRequired] public DashboardResource Resource { get; set; }
+    [Parameter] public string[] Filters { get; set; } = [];
+    private MudTable<DashboardRow>? _table;
+    private string _search = string.Empty;
+    private string _filter = string.Empty;
+    private string? _error;
+    private readonly CancellationTokenSource _lifetime = new();
+
+    private async Task SearchAsync()
+    {
+        if (_table is not null)
+        {
+            if (_table.CurrentPage != 0) _table.NavigateTo(0);
+            else await _table.ReloadServerData();
+        }
+    }
+
+    private async Task<TableData<DashboardRow>> LoadAsync(TableState state, CancellationToken token)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+        _error = null;
+        try
+        {
+            DashboardPage page = await Client.ReadAsync(Resource,
+                new DashboardQuery(Preferences.CandidateId, state.Page, state.PageSize, _search, _filter), linked.Token);
+            return new TableData<DashboardRow> { Items = page.Items, TotalItems = page.TotalCount };
+        }
+        catch (OperationCanceledException) when (linked.IsCancellationRequested)
+        {
+            return new TableData<DashboardRow> { Items = [], TotalItems = 0 };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        {
+            Logger.LogWarning(ex, "Dashboard resource {Resource} could not be loaded", Resource);
+            _error = "Unable to load records. Check API connectivity and database configuration.";
+            return new TableData<DashboardRow> { Items = [], TotalItems = 0 };
+        }
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

@@ -1,0 +1,6 @@
+@page "/automation-queue"
+<PageTitle>Automation Queue — JobHunterAI</PageTitle>
+<MudText Typo="Typo.h4" Component="h1" Class="mb-4">Automation Queue</MudText>
+<MudAlert Severity="Severity.Info" Class="mb-4">Recorded agent executions only. Background scheduling arrives in Phase 14. This page never submits applications.</MudAlert>
+<ResourceTable Resource="DashboardResource.AutomationQueue" Filters="@Statuses" />
+@code { private static readonly string[] Statuses = Enum.GetNames<JobHunterAI.Domain.AgentExecutionStatus>(); }

@@ -1,6 +1,7 @@
 using JobHunterAI.Web.Components;
 using JobHunterAI.Web;
 using Serilog;
+using MudBlazor.Services;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +23,9 @@ builder.Services.AddHttpClient("JobHunterAI.Api", (services, client) =>
     client.BaseAddress = new Uri(baseUrl);
 });
 
+builder.Services.AddMudServices();
+builder.Services.AddScoped<DashboardClient>();
+builder.Services.AddScoped<DashboardPreferences>();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 

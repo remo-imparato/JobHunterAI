@@ -1,0 +1,5 @@
+@page "/resume-versions"
+<PageTitle>Resume Versions — JobHunterAI</PageTitle>
+<MudText Typo="Typo.h4" Component="h1" Class="mb-4">Resume Versions</MudText>
+<ResourceTable Resource="DashboardResource.ResumeVersions" Filters="@Kinds" />
+@code { private static readonly string[] Kinds = ["Base", "Tailored"]; }
