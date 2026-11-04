@@ -24,6 +24,67 @@ internal static class AiValidation
         return result;
     }
 
+    /// <summary>Rejects tailored resumes whose certification section lists anything not held by the candidate.</summary>
+    public static void EnsureNoInventedCertifications(string markdown, CandidateProfile candidate)
+    {
+        bool inCertifications = false;
+        foreach (string rawLine in markdown.Split('\n'))
+        {
+            string line = rawLine.Trim();
+            if (line.StartsWith('#'))
+            {
+                inCertifications = line.Contains("certif", StringComparison.OrdinalIgnoreCase);
+                continue;
+            }
+
+            if (!inCertifications || line.Length == 0)
+            {
+                continue;
+            }
+
+            bool known = false;
+            foreach (Certification certification in candidate.Certifications)
+            {
+                if (line.Contains(certification.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    known = true;
+                    break;
+                }
+            }
+
+            if (!known)
+            {
+                throw new AiResponseException("The AI reply listed a certification the candidate does not hold.");
+            }
+        }
+    }
+
+    /// <summary>Keeps only keywords that are evidenced by the base resume or the candidate's skills.</summary>
+    public static List<string> VerifiedKeywords(IReadOnlyList<string>? keywords, string baseResume, CandidateProfile candidate)
+    {
+        List<string> result = [];
+        foreach (string keyword in Clean(keywords, 50))
+        {
+            bool evidenced = baseResume.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+            foreach (Skill skill in candidate.Skills)
+            {
+                if (evidenced)
+                {
+                    break;
+                }
+
+                evidenced = string.Equals(skill.Name, keyword, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (evidenced)
+            {
+                result.Add(keyword);
+            }
+        }
+
+        return result;
+    }
+
     public static string Required(string? value, string name) =>
         !string.IsNullOrWhiteSpace(value) ? value.Trim() : throw new AiResponseException($"The AI reply is missing {name}.");
 }
@@ -75,10 +136,11 @@ public sealed class ResumeTailoringService(StructuredAiClient client) : IResumeT
         string user = AiJson.Serialize(new { candidate = AiPromptData.Candidate(candidate), job = AiPromptData.Job(job), baseResumeMarkdown });
         Reply reply = await client.RequestAsync<Reply>("ResumeTailoring", system, user, r =>
         {
-            AiValidation.Required(r.ContentMarkdown, "contentMarkdown");
+            AiValidation.EnsureNoInventedCertifications(AiValidation.Required(r.ContentMarkdown, "contentMarkdown"), candidate);
             return r;
         }, cancellationToken);
-        return new TailoredResumeResult(reply.ContentMarkdown!.Trim(), AiValidation.Clean(reply.KeywordsUsed, 50));
+        return new TailoredResumeResult(
+            reply.ContentMarkdown!.Trim(), AiValidation.VerifiedKeywords(reply.KeywordsUsed, baseResumeMarkdown, candidate));
     }
 }
 

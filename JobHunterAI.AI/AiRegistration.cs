@@ -1,4 +1,5 @@
 using JobHunterAI.Application.AI;
+using JobHunterAI.Application.Generation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -40,12 +41,15 @@ public static class DependencyInjection
         {
             services.AddAzureOpenAIChatCompletion(options.DeploymentName!, options.Endpoint!, options.ApiKey!);
             services.TryAddSingleton<IAiTextCompletion, SemanticKernelTextCompletion>();
+            services.TryAddTransient<IResumeDraftingService, AiResumeDraftingService>();
         }
         else
         {
             services.TryAddSingleton<IAiTextCompletion, UnconfiguredTextCompletion>();
+            services.TryAddTransient<IResumeDraftingService, UnavailableResumeDraftingService>();
         }
 
+        services.TryAddSingleton<IResumeDocumentRenderer, ResumeDocumentRenderer>();
         services.TryAddSingleton<StructuredAiClient>();
         services.TryAddTransient<IJobMatchingService, JobMatchingService>();
         services.TryAddTransient<IResumeTailoringService, ResumeTailoringService>();
