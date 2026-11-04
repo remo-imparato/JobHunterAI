@@ -1,56 +1,84 @@
 # JobHunterAI
 
-JobHunterAI is a .NET 10 solution for a job search and application assistant. **Phases 1–16** include the solution foundation, domain and PostgreSQL persistence, CQRS handlers, job providers, resume ingestion, typed AI services, document generation, approval-gated browser assistance, a MudBlazor Server dashboard, opt-in Hangfire background processing, observability, and a measured regression suite. The pre-existing `JobHunter/` project is not included in the solution.
+JobHunterAI is a .NET 10 job-search and application assistant built with Clean Architecture, PostgreSQL, ASP.NET Core, and a Blazor Server dashboard. The solution contains the Domain, Application, Infrastructure, AI, Automation, API, and Web projects, plus unit and integration test projects. The pre-existing `JobHunter/` project is not part of the solution.
 
-## Phase 16 testing and coverage
+## Features
 
-Run `powershell -NoProfile -File scripts/Test-Coverage.ps1` from the repository root. The script runs both xUnit projects using the existing Coverlet collector, merges hits by assembly/source file/line, verifies that all seven production assemblies are represented, and fails if aggregate line coverage is below 80%. Each run writes Cobertura reports and `summary.json` to a new ignored `artifacts/coverage/<run-id>` directory, preventing stale results from satisfying the gate. This is a line-coverage target, not a branch-coverage or per-assembly threshold. Only test assemblies, generated migration files, and generated `obj` C# files are excluded; handwritten Razor and browser automation code remain in scope.
-
-Measured aggregate coverage: **80.78% (2761/3418 lines)**. Assembly breakdown: Domain 86.92%, Application 81.10%, Infrastructure 82.70%, AI 91.76%, Automation 87.38%, API 75.92%, Web 36.33%. The suite includes unit, API integration, provider HTTP-fake, repository/query, AI completion-mock, Web-client and server-rendered component tests. External service tests do not send real requests or incur AI costs. Repository query tests run Npgsql SQL translation with intercepted empty results and verify pagination/parameters/tracking; they do **not** validate PostgreSQL execution, migrations, constraints or concurrency against a live server. Blazor HtmlRenderer tests cover server-rendered pages and summary states, not interactive table callbacks or browser JavaScript. Real Chromium flows, live Hangfire storage and PostgreSQL-backed end-to-end testing remain separate validation work. No coverage percentage implies those integrations have been verified.
+- Discovers and maps job postings from Greenhouse, Lever, and Ashby into a shared domain model.
+- Persists candidate profiles, jobs, applications, resumes, documents, and audit events in PostgreSQL.
+- Provides CQRS application workflows, resume and cover-letter drafting, job matching, and resume tailoring. AI-backed drafting requires Azure OpenAI-compatible endpoint credentials; without configuration, AI-dependent operations report that AI is unavailable.
+- Offers browser-based application preparation that fills supported identity fields and uploads documents, then stops for human review. It does not submit applications.
+- Includes a MudBlazor Blazor Server dashboard for job, application, resume, cover-letter, automation, settings, and analytics views.
+- Supports optional Hangfire background processing for configured job discovery, monitoring, cleanup, scoring, resume variants, and summaries. Background processing and AI jobs are disabled by default.
+- Emits structured JSON logs, health/readiness endpoints, correlation IDs, and .NET metrics/activities.
 
 ## Prerequisites
 
 - .NET 10 SDK
-- PostgreSQL 17 (or Docker with Compose)
+- PostgreSQL 17, running locally or in a container
+- Docker Engine/Desktop for container deployment
+- Azure OpenAI-compatible endpoint credentials only if using AI-backed operations
 
-## Local development
+## Local development setup
 
 ```powershell
 dotnet restore JobHunterAI.slnx
-dotnet tool restore
 dotnet build JobHunterAI.slnx
 dotnet test JobHunterAI.slnx
-if (-not $env:ConnectionStrings__JobHunterAI) { throw 'Set ConnectionStrings__JobHunterAI to your PostgreSQL connection string first.' }
+```
+
+Configure the API connection string in the current PowerShell session or a secure user-secrets store. Do not commit credentials.
+
+```powershell
+$env:ConnectionStrings__JobHunterAI = 'Host=localhost;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=YOUR_PASSWORD'
+dotnet tool restore
 dotnet tool run dotnet-ef database update --project JobHunterAI.Infrastructure --startup-project JobHunterAI.Api
 dotnet run --project JobHunterAI.Api --launch-profile http
-# In a second terminal:
+```
+
+In a second terminal, start the Web host:
+
+```powershell
 dotnet run --project JobHunterAI.Web --launch-profile http
 ```
 
-API health: `http://localhost:5283/health`. Development OpenAPI: `http://localhost:5283/openapi/v1.json`; Swagger UI: `http://localhost:5283/swagger`. Web: `http://localhost:5137/`. The development Web API address is set in `JobHunterAI.Web/appsettings.Development.json`.
+The API is available at `http://localhost:5283`; the Blazor dashboard is at `http://localhost:5137`. API health checks are at `/health`, `/health/live`, and `/health/ready`. Development OpenAPI and Swagger UI are available at `/openapi/v1.json` and `/swagger`. The Web development API address is configured in `JobHunterAI.Web/appsettings.Development.json`.
 
-Provide `ConnectionStrings__JobHunterAI` through an environment variable or secure development secret store before running the API; no connection string/password is committed. The initial migration is in `JobHunterAI.Infrastructure/Migrations`; its idempotent SQL script is `InitialCreate.sql`. For later changes, generate and review a new migration and SQL script before applying them. The API never auto-migrates in Production. To migrate and seed harmless example data on Development startup, set `Database__SeedDevelopmentData=true` explicitly; leave it unset or false otherwise.
+Entity Framework migrations are in `JobHunterAI.Infrastructure/Migrations`. Apply migrations explicitly before starting the API; the API does not auto-migrate. To add harmless example data on Development startup, set `Database__SeedDevelopmentData=true`; it is false by default.
 
-## Containers
+AI-backed drafting uses the Azure OpenAI connector. Configure `AI__Endpoint`, `AI__ApiKey`, and `AI__DeploymentName` when AI features are needed. For production use, obtain a valid AutoMapper license and provide it as `AutoMapper__LicenseKey`; keep the key outside source control.
+
+Run the aggregate line-coverage check with `powershell -NoProfile -File scripts/Test-Coverage.ps1`. It runs both test projects and enforces the configured 80% aggregate line-coverage threshold. Tests use mocked external services and do not replace live PostgreSQL, browser, or Hangfire deployment validation.
+
+## Container deployment with Docker Compose
+
+Install Docker Engine/Desktop with Docker Compose v2. The root `compose.yaml` defines all three services. Run the following commands from the repository root. Set a strong PostgreSQL password in the current PowerShell session; avoid semicolons and quotation marks in this password because it is also used in the API connection string.
 
 ```powershell
-$env:POSTGRES_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'Local PostgreSQL password' -AsSecureString)).Password
+$env:POSTGRES_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'PostgreSQL password' -AsSecureString)).Password
 docker compose up -d db
+```
+
+The database data is stored in the `postgres-data` named volume. Once the database is healthy, apply the EF migrations from the host before starting the API. This requires the .NET 10 SDK and the repository's local `dotnet-ef` tool:
+
+```powershell
 $env:ConnectionStrings__JobHunterAI = 'Host=localhost;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=' + $env:POSTGRES_PASSWORD
 dotnet tool restore
 dotnet tool run dotnet-ef database update --project JobHunterAI.Infrastructure --startup-project JobHunterAI.Api
-docker compose up --build
+docker compose up --build -d
 ```
 
-API: `http://localhost:8081/health`; Web: `http://localhost:8082/`. PostgreSQL listens only on `127.0.0.1:5432` on the host. Compose requires `POSTGRES_PASSWORD`; keep it out of source control and use a strong local password. Containers communicate over the Compose network. The development seed is disabled in Production Compose. Clear session environment variables after use.
+Compose builds and starts the API, Blazor Web, and PostgreSQL services. The dashboard is at `http://localhost:8082` and the API at `http://localhost:8081`; database readiness is at `http://localhost:8081/health/ready`, and Web readiness is at `http://localhost:8082/health/ready`. The host ports are bound to loopback. `docker compose down` stops and removes the containers but preserves the database volume; `docker compose down -v` also deletes the database data.
 
-## Phase 13 dashboard
+AI and production AutoMapper settings are optional and can be supplied as environment variables before `docker compose up`: `AI_ENDPOINT`, `AI_API_KEY`, `AI_DEPLOYMENT_NAME`, and `AUTOMAPPER_LICENSE_KEY`. Background processing and AI background jobs remain disabled by default; opt in with `BACKGROUND_ENABLED=true` and, when needed, `BACKGROUND_ENABLE_AI_JOBS=true`. Keep credentials out of source control and clear temporary PowerShell environment variables after use.
+
+## Dashboard
 
 The Blazor Server dashboard uses MudBlazor and exposes Dashboard, Jobs, Applications, Resume Versions, Cover Letters, Automation Queue, Settings, and Analytics. Start both hosts using the local development commands above. In Settings, enter an existing candidate profile ID and choose a page size. Preferences last for the current browser circuit only. Jobs are shared discovery records; applications, document metadata, and execution records are filtered by the selected candidate. Lists search and filter on the server and fetch only the requested page.
 
 Read-only endpoints are under `/api/dashboard/{resource}` and `/api/dashboard/summary`. Resource queries require `candidateId` and accept zero-based `page`, `pageSize` (1–100), `search`, and `filter`. The Automation Queue displays recorded candidate agent executions, not pending Hangfire jobs. This dashboard does not submit applications. Analytics shows current persisted counts, not historical trends. Document lists expose metadata rather than rendering untrusted Markdown or exposing file paths.
 
-## Phase 14 background processing
+## Background processing
 
 Hangfire runs inside the API and defaults off (`Background:Enabled=false`). Enable it only after applying application migrations and configuring `ConnectionStrings__JobHunterAI`. On enablement, Hangfire creates its own `hangfire` PostgreSQL schema; the database role needs schema creation permissions. No Hangfire dashboard or enqueue HTTP endpoint is exposed. Disabling the feature stops this host's workers; persisted schedules remain in storage, so stop all other workers sharing that storage when disabling it globally.
 
@@ -64,7 +92,7 @@ Log cleanup is a no-op until an absolute `Background:LogDirectory` is configured
 
 **Candidate selection is not authorization.** Authentication and ownership enforcement are not implemented. Keep both hosts on a trusted local/private network and do not expose these endpoints with real candidate data until access control is added. Database-backed operation requires the existing PostgreSQL migrations and API connection configuration. In non-development environments, configure `Api__BaseUrl`; missing configuration intentionally prevents Web startup.
 
-## Phase 15 observability
+## Observability
 
 Both hosts write JSON console logs with structured properties. HTTP completion events record method, route template, status and elapsed milliseconds, not bodies or query strings. Requests accept `X-Correlation-ID` containing 1–64 ASCII letters, digits, hyphens or underscores; invalid/multiple values are replaced. The ID is returned in the response and included with trace/span identifiers in request logging scopes. API exception responses include `correlationId` and `traceId` without exception details. Standard .NET HTTP activities propagate W3C trace context on outgoing requests.
 
@@ -80,4 +108,4 @@ The API requires `JobHunterAI:DisplayName` and `ConnectionStrings:JobHunterAI` (
 
 ## Solution boundaries
 
-`Domain` has no dependencies; `Application` references `Domain`; `Infrastructure` and `AI` reference `Application`; `Api` references `Application`, `Infrastructure`, and `AI`. `Web` uses the API through HTTP rather than referencing the executable API assembly. Candidate profiles own qualifications and experience, resumes own versions, and applications own status events. Repositories operate on aggregate roots; `IUnitOfWork` commits changes once, and PostgreSQL's native `xmin` detects conflicting updates. The Phase 4 MediatR handlers support paginated job/application queries, job and application changes, and document-generation orchestration. Generation deliberately fails with `NotSupportedException` until real drafting services are configured in a later AI phase; no fabricated content is returned. The application aggregate blocks submission without recorded user approval, but authenticated approval and submission endpoints are later-phase work. **Do not deploy for real candidate data or applications yet**.
+`Domain` has no dependencies; `Application` references `Domain`; `Infrastructure` and `AI` reference `Application`; `Api` references `Application`, `Infrastructure`, `AI`, and `Automation`. `Web` uses the API through HTTP rather than referencing the executable API assembly. Candidate profiles own qualifications and experience, resumes own versions, and applications own status events. Repositories operate on aggregate roots; `IUnitOfWork` commits changes once, and PostgreSQL's native `xmin` detects conflicting updates. MediatR handlers support paginated job/application queries, job and application changes, and document-generation workflows. Resume and cover-letter drafting requires configured AI services; without them, AI-dependent operations fail rather than returning fabricated content. Application preparation stops for human review and does not submit. Authentication, authorization, and authenticated approval/submission endpoints are not implemented. **Do not expose the hosts publicly or use real candidate data until access control is added.**

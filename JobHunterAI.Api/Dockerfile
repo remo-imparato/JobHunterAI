@@ -1,10 +1,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY Directory.Build.props ./
 COPY JobHunterAI.Domain/*.csproj JobHunterAI.Domain/
 COPY JobHunterAI.Application/*.csproj JobHunterAI.Application/
 COPY JobHunterAI.Infrastructure/*.csproj JobHunterAI.Infrastructure/
 COPY JobHunterAI.AI/*.csproj JobHunterAI.AI/
+COPY JobHunterAI.Automation/*.csproj JobHunterAI.Automation/
 COPY JobHunterAI.Api/*.csproj JobHunterAI.Api/
 RUN dotnet restore JobHunterAI.Api/JobHunterAI.Api.csproj
 COPY . .

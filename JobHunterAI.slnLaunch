@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "JobHunterAI",
+    "Projects": [
+      {
+        "Path": "JobHunterAI.Api\\JobHunterAI.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "WSL"
+      },
+      {
+        "Path": "JobHunterAI.Web\\JobHunterAI.Web.csproj",
+        "Action": "Start",
+        "DebugTarget": "WSL"
+      }
+    ]
+  }
+]
