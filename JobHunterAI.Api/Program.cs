@@ -1,5 +1,11 @@
+using FluentValidation;
+using JobHunterAI.AI;
+using JobHunterAI.Application.Common;
+using JobHunterAI.Application.Generation;
+using JobHunterAI.Application.Jobs;
 using JobHunterAI.Api;
 using JobHunterAI.Infrastructure;
+using MediatR;
 using Serilog;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
@@ -14,6 +20,19 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
+builder.Services.AddMediatR(config => config.RegisterServicesFromAssembly(typeof(GetJobsHandler).Assembly));
+builder.Services.AddValidatorsFromAssemblyContaining<GetJobsValidator>();
+builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+builder.Services.AddAutoMapper(config =>
+{
+    string? licenseKey = builder.Configuration["AutoMapper:LicenseKey"];
+    if (!string.IsNullOrWhiteSpace(licenseKey))
+    {
+        config.LicenseKey = licenseKey;
+    }
+}, typeof(ApplicationMappingProfile));
+builder.Services.AddTransient<IResumeDraftingService, UnavailableResumeDraftingService>();
+builder.Services.AddTransient<ICoverLetterDraftingService, UnavailableCoverLetterDraftingService>();
 builder.Services.AddOptions<JobHunterOptions>()
     .Bind(builder.Configuration.GetSection(JobHunterOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.DisplayName), "JobHunterAI:DisplayName is required.")

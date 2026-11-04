@@ -19,6 +19,8 @@ public static class DependencyInjection
         services.AddDbContext<JobHunterDbContext>(options => options.UseNpgsql(connectionString,
             npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "public")));
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<JobHunterDbContext>());
+        services.AddScoped<IApplicationLookup, ApplicationLookup>();
+        services.AddScoped<IJobPostingLookup, JobPostingLookup>();
         services.AddScoped<IRepository<CandidateProfile>, EfRepository<CandidateProfile>>();
         services.AddScoped<IRepository<Company>, EfRepository<Company>>();
         services.AddScoped<IRepository<JobPosting>, EfRepository<JobPosting>>();
