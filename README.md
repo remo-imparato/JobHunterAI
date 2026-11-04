@@ -27,10 +27,10 @@ dotnet build JobHunterAI.slnx
 dotnet test JobHunterAI.slnx
 ```
 
-Configure the API connection string in the current PowerShell session or a secure user-secrets store. Do not commit credentials.
+The API development settings and Docker Compose use the same local database credentials: database `jobhunterai`, username `jobhunterai`, and password `jobhunterai`. This intentionally hardcoded password is for local development only; replace it with securely managed credentials before deploying outside your machine. Existing User Secrets or environment-variable overrides must use the same password or be removed so the development settings take effect.
 
 ```powershell
-$env:ConnectionStrings__JobHunterAI = 'Host=localhost;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=YOUR_PASSWORD'
+$env:ConnectionStrings__JobHunterAI = 'Host=localhost;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=jobhunterai'
 dotnet tool restore
 dotnet tool run dotnet-ef database update --project JobHunterAI.Infrastructure --startup-project JobHunterAI.Api
 dotnet run --project JobHunterAI.Api --launch-profile http
@@ -52,23 +52,30 @@ Run the aggregate line-coverage check with `powershell -NoProfile -File scripts/
 
 ## Container deployment with Docker Compose
 
-Install Docker Engine/Desktop with Docker Compose v2. The root `compose.yaml` defines all three services. Run the following commands from the repository root. Set a strong PostgreSQL password in the current PowerShell session; avoid semicolons and quotation marks in this password because it is also used in the API connection string.
+Install Docker Engine/Desktop with Docker Compose v2. The root `compose.yaml` defines all three services and uses the local password `jobhunterai` for both PostgreSQL and the API connection string. No `POSTGRES_PASSWORD` environment variable or `.env` file is required. Run the following commands from the repository root.
 
 ```powershell
-$env:POSTGRES_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'PostgreSQL password' -AsSecureString)).Password
 docker compose up -d db
 ```
 
-The database data is stored in the `postgres-data` named volume. Once the database is healthy, apply the EF migrations from the host before starting the API. This requires the .NET 10 SDK and the repository's local `dotnet-ef` tool:
+The database data is stored in the `postgres-data` named volume. If this volume was initialized with a different password, changing Compose does not change the stored password. After the database starts, update the existing role without deleting any data:
 
 ```powershell
-$env:ConnectionStrings__JobHunterAI = 'Host=localhost;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=' + $env:POSTGRES_PASSWORD
+docker compose exec -T db psql -U jobhunterai -d jobhunterai -v ON_ERROR_STOP=1 -c "ALTER ROLE jobhunterai WITH PASSWORD 'jobhunterai';"
+```
+
+This command uses the official PostgreSQL image's local Unix-socket authentication inside the database container. Once the database is healthy, apply the EF migrations from the host before starting the API. This requires the .NET 10 SDK and the repository's local `dotnet-ef` tool:
+
+```powershell
+$env:ConnectionStrings__JobHunterAI = 'Host=localhost;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=jobhunterai'
 dotnet tool restore
 dotnet tool run dotnet-ef database update --project JobHunterAI.Infrastructure --startup-project JobHunterAI.Api
 docker compose up --build -d
 ```
 
 Compose builds and starts the API, Blazor Web, and PostgreSQL services. The dashboard is at `http://localhost:8082` and the API at `http://localhost:8081`; database readiness is at `http://localhost:8081/health/ready`, and Web readiness is at `http://localhost:8082/health/ready`. The host ports are bound to loopback. `docker compose down` stops and removes the containers but preserves the database volume; `docker compose down -v` also deletes the database data.
+
+For pgAdmin or other tools running on Windows, connect with host `localhost`, port `5432`, maintenance database `jobhunterai`, username `jobhunterai`, and password `jobhunterai`. The API running in Visual Studio uses the same host connection. Containers on the Compose network use host `db` instead of `localhost`. A pgAdmin container must join that network to use `db`.
 
 AI and production AutoMapper settings are optional and can be supplied as environment variables before `docker compose up`: `AI_ENDPOINT`, `AI_API_KEY`, `AI_DEPLOYMENT_NAME`, and `AUTOMAPPER_LICENSE_KEY`. Background processing and AI background jobs remain disabled by default; opt in with `BACKGROUND_ENABLED=true` and, when needed, `BACKGROUND_ENABLE_AI_JOBS=true`. Keep credentials out of source control and clear temporary PowerShell environment variables after use.
 

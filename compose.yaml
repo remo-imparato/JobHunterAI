@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: jobhunterai
       POSTGRES_USER: jobhunterai
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting Compose}
+      POSTGRES_PASSWORD: jobhunterai
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobhunterai -d jobhunterai"]
       interval: 5s
@@ -22,7 +22,7 @@ services:
       dockerfile: JobHunterAI.Api/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__JobHunterAI: Host=db;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting Compose}
+      ConnectionStrings__JobHunterAI: Host=db;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=jobhunterai
       AI__Endpoint: ${AI_ENDPOINT:-}
       AI__ApiKey: ${AI_API_KEY:-}
       AI__DeploymentName: ${AI_DEPLOYMENT_NAME:-}
