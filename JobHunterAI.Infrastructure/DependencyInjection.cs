@@ -1,4 +1,6 @@
 using JobHunterAI.Application.Persistence;
+using JobHunterAI.Application.Resumes;
+using JobHunterAI.Infrastructure.Resumes;
 using JobHunterAI.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,6 +21,7 @@ public static class DependencyInjection
         services.AddDbContext<JobHunterDbContext>(options => options.UseNpgsql(connectionString,
             npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "public")));
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<JobHunterDbContext>());
+        services.AddScoped<IResumeParser, ResumeParser>();
         services.AddScoped<IApplicationLookup, ApplicationLookup>();
         services.AddScoped<IJobPostingLookup, JobPostingLookup>();
         services.AddScoped<IRepository<CandidateProfile>, EfRepository<CandidateProfile>>();
