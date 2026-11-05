@@ -4,7 +4,7 @@
 <MudText Typo="Typo.h4" Component="h1" Class="mb-4">Settings</MudText>
 <MudAlert Severity="Severity.Warning" Class="mb-4">Candidate selection is not authentication. Use this dashboard only in a trusted environment until authentication and authorization are configured.</MudAlert>
 <MudText Class="mb-4">Preferences apply to this browser circuit only. Obtain the candidate ID from your seeded or imported profile. No credentials are stored here.</MudText>
-<MudTextField T="string" Label="Candidate ID" @bind-Value="_candidateId" MaxLength="36" Class="mb-4" />
+<MudTextField T="string" Label="Candidate ID" @bind-Value="_candidateId" Immediate="true" ShrinkLabel="true" MaxLength="36" Class="mb-4" />
 <MudSelect T="int" Label="Default page size" @bind-Value="_pageSize" Class="mb-4">
     <MudSelectItem T="int" Value="10">10</MudSelectItem>
     <MudSelectItem T="int" Value="25">25</MudSelectItem>
@@ -32,6 +32,6 @@
         if (!_valid) { _message = "Enter a valid, nonempty candidate ID."; return; }
         Preferences.CandidateId = id;
         Preferences.PageSize = _pageSize;
-        _message = "Preferences saved for this circuit. Open a dashboard page to load your data.";
+        _message = $"Candidate {id} selected for this circuit. Open a dashboard page using the navigation menu to load your data. Refreshing the browser clears this selection.";
     }
 }

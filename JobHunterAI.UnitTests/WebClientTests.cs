@@ -12,9 +12,11 @@ public sealed class WebClientTests
     {
         Factory factory = new("{\"items\":[],\"totalCount\":23}");
         DashboardClient client = new(factory);
+        Guid candidateId = Guid.NewGuid();
         DashboardPage page = await client.ReadAsync(DashboardResource.Jobs,
-            new DashboardQuery(Guid.NewGuid(), 2, 25, "C# & .NET", "Lever"), CancellationToken.None);
+            new DashboardQuery(candidateId, 2, 25, "C# & .NET", "Lever"), CancellationToken.None);
         Assert.Equal(23, page.TotalCount);
+        Assert.Contains($"candidateId={candidateId}", factory.Uri!.Query);
         Assert.Contains("page=2&pageSize=25", factory.Uri!.Query);
         Assert.Contains("C%23%20%26%20.NET", factory.Uri.Query);
         Assert.Equal("JobHunterAI.Api", factory.Name);
@@ -42,10 +44,12 @@ public sealed class WebClientTests
     [Fact]
     public async Task Summary_ReturnsTypedCounts()
     {
-        var result = await new DashboardClient(new Factory("{\"jobs\":3,\"applications\":1,\"resumeVersions\":2,\"coverLetters\":0,\"runningExecutions\":0,\"applicationStatuses\":[]}"))
-            .SummarizeAsync(Guid.NewGuid(), CancellationToken.None);
+        Factory factory = new("{\"jobs\":3,\"applications\":1,\"resumeVersions\":2,\"coverLetters\":0,\"runningExecutions\":0,\"applicationStatuses\":[]}");
+        Guid candidateId = Guid.NewGuid();
+        var result = await new DashboardClient(factory).SummarizeAsync(candidateId, CancellationToken.None);
         Assert.Equal(3, result.Jobs);
         Assert.Equal(1, result.Applications);
+        Assert.Equal($"?candidateId={candidateId}", factory.Uri!.Query);
     }
 
     [Theory]
