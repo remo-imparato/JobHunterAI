@@ -41,17 +41,12 @@ public sealed class GenerateResumeHandler(
 			return Result<ResumeVersionDto>.NotFound("Candidate profile or job posting not found.");
 		}
 
-		ResumeVersion? baseVersion = null;
+		ResumeVersion? baseVersion = resume.SourceVersion;
 		foreach (ResumeVersion version in resume.Versions)
 		{
 			if (version.Id == request.VersionId)
 			{
 				return Result<ResumeVersionDto>.Conflict("Resume version already exists.");
-			}
-
-			if (baseVersion is null || version.VersionNumber > baseVersion.VersionNumber)
-			{
-				baseVersion = version;
 			}
 		}
 

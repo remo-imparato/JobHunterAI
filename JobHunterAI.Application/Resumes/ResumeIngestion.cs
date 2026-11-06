@@ -14,23 +14,48 @@ public sealed record ParsedResume(
 	IReadOnlyList<ParsedSkill> Skills,
 	IReadOnlyList<ParsedWorkExperience> WorkHistory,
 	IReadOnlyList<ParsedEducation> Education,
-	IReadOnlyList<ParsedCertification> Certifications);
+	IReadOnlyList<ParsedCertification> Certifications)
+{
+	public string SourceText { get; init; } = string.Empty;
+}
 
 public interface IResumeParser
 {
 	/// <summary>Parses a PDF or DOCX resume. The file type is determined by the file extension.</summary>
 	Task<ParsedResume> ParseAsync(Stream content, string fileName, CancellationToken cancellationToken = default);
+	ParsedResume ParseText(string text);
 }
 
-public sealed class UnsupportedResumeFormatException(string message) : Exception(message);
+public class UnsupportedResumeFormatException(string message) : Exception(message);
+public sealed class ResumeFileTooLargeException(string message) : UnsupportedResumeFormatException(message);
+
+public static class ResumeUploadLimits
+{
+	public const int MaxFileBytes = 10 * 1024 * 1024;
+	public const int MaxTextCharacters = 500000;
+}
 
 public static class ResumeProfileImporter
 {
+	public static ParsedResume Preview(CandidateProfile profile, ParsedResume parsed) => new(
+		parsed.Skills.Where(x => !HasSkill(profile, x.Name)).ToArray(),
+		parsed.WorkHistory.Where(x => !HasWork(profile, x)).ToArray(),
+		parsed.Education.Where(x => !HasEducation(profile, x)).ToArray(),
+		parsed.Certifications.Where(x => !HasCertification(profile, x)).ToArray());
+
 	/// <summary>Adds parsed items to the profile, skipping items the profile already contains.</summary>
 	public static void Apply(CandidateProfile profile, ParsedResume parsed)
 	{
 		ArgumentNullException.ThrowIfNull(profile);
 		ArgumentNullException.ThrowIfNull(parsed);
+
+		if (parsed.Skills.Any(x => x.Name.Length > 200) ||
+			parsed.WorkHistory.Any(x => x.Employer.Length > 200 || x.Title.Length > 200) ||
+			parsed.Education.Any(x => x.Institution.Length > 200 || x.Qualification.Length > 200) ||
+			parsed.Certifications.Any(x => x.Name.Length > 200 || x.Issuer.Length > 200))
+		{
+			throw new UnsupportedResumeFormatException("Some extracted profile fields exceed 200 characters. The source is preserved; review the text and edit the candidate profile manually.");
+		}
 
 		foreach (ParsedSkill skill in parsed.Skills)
 		{

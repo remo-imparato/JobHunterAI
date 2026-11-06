@@ -4,7 +4,7 @@ public sealed class ResumeVersion
 {
     private ResumeVersion() { }
 
-    internal ResumeVersion(Guid id, Guid resumeId, int versionNumber, string contentMarkdown, DateTimeOffset createdAt, Guid? jobPostingId)
+    internal ResumeVersion(Guid id, Guid resumeId, int versionNumber, string contentMarkdown, DateTimeOffset createdAt, Guid? jobPostingId, bool isSource)
     {
         Id = DomainGuard.Id(id, nameof(id));
         ResumeId = DomainGuard.Id(resumeId, nameof(resumeId));
@@ -17,6 +17,7 @@ public sealed class ResumeVersion
         ContentMarkdown = DomainGuard.Required(contentMarkdown, nameof(contentMarkdown));
         CreatedAt = DomainGuard.Timestamp(createdAt, nameof(createdAt));
         JobPostingId = jobPostingId.HasValue ? DomainGuard.Id(jobPostingId.Value, nameof(jobPostingId)) : null;
+        IsSource = isSource;
     }
 
     public Guid Id { get; private set; }
@@ -25,4 +26,5 @@ public sealed class ResumeVersion
     public string ContentMarkdown { get; private set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; private set; }
     public Guid? JobPostingId { get; private set; }
+    public bool IsSource { get; private set; }
 }

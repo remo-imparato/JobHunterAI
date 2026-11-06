@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using JobHunterAI.Application.Candidates;
 using JobHunterAI.Application.Dashboard;
 
 namespace JobHunterAI.Web;
@@ -6,7 +7,22 @@ namespace JobHunterAI.Web;
 public sealed class DashboardPreferences
 {
     public Guid CandidateId { get; set; }
+    public CandidateDto? Candidate { get; private set; }
     public int PageSize { get; set; } = 10;
+
+    public void SelectCandidate(CandidateDto candidate)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        if (candidate.Id == Guid.Empty) throw new ArgumentException("A candidate ID is required.", nameof(candidate));
+        Candidate = candidate;
+        CandidateId = candidate.Id;
+    }
+
+    public void ClearCandidate()
+    {
+        Candidate = null;
+        CandidateId = Guid.Empty;
+    }
 }
 
 public sealed class DashboardClient(IHttpClientFactory factory)

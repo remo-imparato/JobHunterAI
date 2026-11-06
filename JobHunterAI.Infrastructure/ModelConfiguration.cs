@@ -10,10 +10,13 @@ internal static class ModelConfiguration
     {
         modelBuilder.Entity<CandidateProfile>(entity =>
         {
-            entity.ToTable("candidate_profiles");
+            entity.ToTable("candidate_profiles", table => table.HasCheckConstraint(
+                "CK_candidate_profiles_Username", "\"Username\" ~ '^[a-z0-9._-]{1,64}$'"));
             entity.HasKey(x => x.Id);
             Concurrency(entity);
             entity.Property(x => x.FullName).HasMaxLength(200).IsRequired();
+            entity.Property(x => x.Username).HasMaxLength(64).IsRequired();
+            entity.HasIndex(x => x.Username).IsUnique();
             entity.Property(x => x.Headline).HasMaxLength(300).IsRequired();
             entity.OwnsOne(x => x.Email, email =>
                 email.Property(x => x.Value).HasColumnName("Email").HasMaxLength(320).IsRequired());
@@ -26,6 +29,34 @@ internal static class ModelConfiguration
             entity.Navigation(x => x.WorkExperiences).UsePropertyAccessMode(PropertyAccessMode.Field).AutoInclude();
             entity.Navigation(x => x.EducationRecords).UsePropertyAccessMode(PropertyAccessMode.Field).AutoInclude();
             entity.Navigation(x => x.Certifications).UsePropertyAccessMode(PropertyAccessMode.Field).AutoInclude();
+        });
+        modelBuilder.Entity<ApplicationPackage>(entity =>
+        {
+            entity.ToTable("application_packages");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            Concurrency(entity);
+            entity.HasIndex(x => new { x.CandidateProfileId, x.JobPostingId, x.ResumeId }).IsUnique();
+            entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(x => x.CandidateProfileId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Resume>().WithMany().HasForeignKey(x => x.ResumeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ResumeVersion>().WithMany().HasForeignKey(x => x.SourceVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<JobPosting>().WithMany().HasForeignKey(x => x.JobPostingId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Company>().WithMany().HasForeignKey(x => x.CompanyId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ResumeVersion>().WithMany().HasForeignKey(x => x.ResumeVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<CoverLetter>().WithMany().HasForeignKey(x => x.CoverLetterId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<CandidateSearchCriteria>(entity =>
+        {
+            entity.ToTable("candidate_search_criteria");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            Concurrency(entity);
+            entity.HasOne<CandidateProfile>().WithOne().HasForeignKey<CandidateSearchCriteria>(x => x.Id).OnDelete(DeleteBehavior.Cascade);
+            entity.Property(x => x.JobTitles).HasField("_jobTitles").UsePropertyAccessMode(PropertyAccessMode.Field).HasColumnType("text[]");
+            entity.Property(x => x.Locations).HasField("_locations").UsePropertyAccessMode(PropertyAccessMode.Field).HasColumnType("text[]");
+            entity.Property(x => x.RequiredKeywords).HasField("_requiredKeywords").UsePropertyAccessMode(PropertyAccessMode.Field).HasColumnType("text[]");
+            entity.Property(x => x.ExcludedKeywords).HasField("_excludedKeywords").UsePropertyAccessMode(PropertyAccessMode.Field).HasColumnType("text[]");
         });
 
         modelBuilder.Entity<Skill>(entity =>
@@ -61,6 +92,28 @@ internal static class ModelConfiguration
             entity.HasIndex(x => x.CandidateProfileId);
         });
 
+        modelBuilder.Entity<JobDiscoveryRun>(entity =>
+        {
+            entity.ToTable("job_discovery_runs");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            Concurrency(entity);
+            entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(x => x.CandidateProfileId).OnDelete(DeleteBehavior.Restrict);
+            entity.Property(x => x.CriteriaSnapshot).IsRequired();
+            entity.Property(x => x.Warnings).HasField("_warnings").UsePropertyAccessMode(PropertyAccessMode.Field).HasColumnType("text[]");
+            entity.HasMany(x => x.Results).WithOne().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Cascade);
+            entity.Navigation(x => x.Results).UsePropertyAccessMode(PropertyAccessMode.Field);
+            entity.HasIndex(x => new { x.CandidateProfileId, x.StartedAt });
+        });
+        modelBuilder.Entity<JobDiscoveryResult>(entity =>
+        {
+            entity.ToTable("job_discovery_results");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
+            entity.HasOne<JobPosting>().WithMany().HasForeignKey(x => x.JobPostingId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.RunId, x.JobPostingId }).IsUnique();
+        });
+
         modelBuilder.Entity<Company>(entity =>
         {
             entity.ToTable("companies");
@@ -86,6 +139,7 @@ internal static class ModelConfiguration
                 location.Property(x => x.City).HasColumnName("City").HasMaxLength(200);
                 location.Property(x => x.Country).HasColumnName("Country").HasMaxLength(200);
                 location.Property(x => x.IsRemote).HasColumnName("IsRemote").IsRequired();
+                location.Property(x => x.Arrangement).HasColumnName("WorkArrangement");
             });
             entity.Navigation(x => x.Location).IsRequired();
             entity.HasIndex(x => new { x.ProviderName, x.ExternalId }).IsUnique();
@@ -100,16 +154,23 @@ internal static class ModelConfiguration
             entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(x => x.CandidateProfileId).OnDelete(DeleteBehavior.Restrict);
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => x.CandidateProfileId);
+            entity.Ignore(x => x.SourceVersion);
+            entity.Property(x => x.SourceFileName).HasMaxLength(200);
+            entity.Property(x => x.SourceSha256).HasMaxLength(64);
+            entity.HasIndex(x => new { x.CandidateProfileId, x.SourceSha256 }).IsUnique();
             entity.HasMany(x => x.Versions).WithOne().HasForeignKey(x => x.ResumeId).OnDelete(DeleteBehavior.Cascade);
             entity.Navigation(x => x.Versions).UsePropertyAccessMode(PropertyAccessMode.Field).AutoInclude();
         });
         modelBuilder.Entity<ResumeVersion>(entity =>
         {
-            entity.ToTable("resume_versions");
+            entity.ToTable("resume_versions", table => table.HasCheckConstraint(
+                "CK_resume_versions_SourceNotTailored", "NOT \"IsSource\" OR \"JobPostingId\" IS NULL"));
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.HasOne<JobPosting>().WithMany().HasForeignKey(x => x.JobPostingId).OnDelete(DeleteBehavior.Restrict);
             entity.Property(x => x.ContentMarkdown).IsRequired();
             entity.HasIndex(x => new { x.ResumeId, x.VersionNumber }).IsUnique();
+            entity.HasIndex(x => x.ResumeId).IsUnique().HasFilter("\"IsSource\"");
             entity.HasIndex(x => x.JobPostingId);
         });
         modelBuilder.Entity<CoverLetter>(entity =>
@@ -148,7 +209,7 @@ internal static class ModelConfiguration
         {
             entity.ToTable("job_match_scores");
             entity.HasKey(x => x.Id);
-            entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(x => x.CandidateProfileId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<CandidateProfile>().WithMany().HasForeignKey(x => x.CandidateProfileId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<JobPosting>().WithMany().HasForeignKey(x => x.JobPostingId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(x => new { x.CandidateProfileId, x.JobPostingId, x.ScoredAt });
             entity.HasIndex(x => x.JobPostingId);

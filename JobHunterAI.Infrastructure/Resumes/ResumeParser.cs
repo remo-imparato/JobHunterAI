@@ -10,7 +10,7 @@ namespace JobHunterAI.Infrastructure.Resumes;
 
 public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
 {
-    public const int MaxFileBytes = 10 * 1024 * 1024;
+    public const int MaxFileBytes = ResumeUploadLimits.MaxFileBytes;
     private const int MaxPdfPages = 50;
     private const long MaxDocxXmlBytes = 20 * 1024 * 1024;
 
@@ -31,15 +31,24 @@ public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
         }
         catch (Exception exception) when (exception is not (OperationCanceledException or UnsupportedResumeFormatException))
         {
-            logger.LogWarning(exception, "Resume text extraction failed for a {Extension} file.", extension);
+            logger.LogWarning("Resume text extraction failed for a {Extension} file ({ErrorType}).", extension, exception.GetType().Name);
             throw new UnsupportedResumeFormatException("The resume file could not be read.");
         }
 
-        ParsedResume parsed = ResumeTextParser.Parse(text);
+        ParsedResume parsed = ParseText(text);
         logger.LogInformation(
             "Parsed resume: {Skills} skills, {Jobs} jobs, {Education} education records, {Certifications} certifications.",
             parsed.Skills.Count, parsed.WorkHistory.Count, parsed.Education.Count, parsed.Certifications.Count);
         return parsed;
+    }
+
+    public ParsedResume ParseText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new UnsupportedResumeFormatException("No readable text was found. Scanned resumes require OCR; upload a text-based PDF or DOCX.");
+        if (text.Length > ResumeUploadLimits.MaxTextCharacters)
+            throw new ResumeFileTooLargeException("Extracted resume text exceeds 500,000 characters.");
+        return ResumeTextParser.Parse(text);
     }
 
     private static async Task<byte[]> ReadBoundedAsync(Stream content, CancellationToken cancellationToken)
@@ -51,7 +60,7 @@ public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
         {
             if (buffer.Length + read > MaxFileBytes)
             {
-                throw new UnsupportedResumeFormatException("The resume file is too large.");
+                throw new ResumeFileTooLargeException("The resume file exceeds 10 MB.");
             }
 
             buffer.Write(chunk, 0, read);
@@ -69,11 +78,14 @@ public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
 
         using PdfDocument document = PdfDocument.Open(bytes);
         StringBuilder text = new();
-        int pages = Math.Min(document.NumberOfPages, MaxPdfPages);
+        if (document.NumberOfPages > MaxPdfPages)
+            throw new ResumeFileTooLargeException("PDF resumes must contain at most 50 pages. The source will not be truncated.");
+        int pages = document.NumberOfPages;
         for (int i = 1; i <= pages; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             text.AppendLine(ContentOrderTextExtractor.GetText(document.GetPage(i)));
+            EnsureTextLimit(text);
         }
 
         return text.ToString();
@@ -92,10 +104,10 @@ public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
             ?? throw new UnsupportedResumeFormatException("The file is not a valid DOCX.");
         if (entry.Length > MaxDocxXmlBytes)
         {
-            throw new UnsupportedResumeFormatException("The resume file is too large.");
+            throw new ResumeFileTooLargeException("The DOCX document XML exceeds the 20 MB extraction limit.");
         }
 
-        XmlReaderSettings settings = new() { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
+        XmlReaderSettings settings = new() { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = MaxDocxXmlBytes };
         using Stream xml = entry.Open();
         using XmlReader reader = XmlReader.Create(xml, settings);
         StringBuilder text = new();
@@ -109,7 +121,7 @@ public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
                 {
                     case "t": inText = !reader.IsEmptyElement; break;
                     case "tab": text.Append('\t'); break;
-                    case "br": text.Append(' '); break;
+                    case "br": text.Append('\n'); break;
                 }
             }
             else if (reader.NodeType == XmlNodeType.EndElement)
@@ -127,8 +139,15 @@ public sealed class ResumeParser(ILogger<ResumeParser> logger) : IResumeParser
             {
                 text.Append(reader.Value);
             }
+            EnsureTextLimit(text);
         }
 
         return text.ToString();
+    }
+
+    private static void EnsureTextLimit(StringBuilder text)
+    {
+        if (text.Length > ResumeUploadLimits.MaxTextCharacters)
+            throw new ResumeFileTooLargeException("Extracted resume text exceeds 500,000 characters. The source will not be truncated.");
     }
 }

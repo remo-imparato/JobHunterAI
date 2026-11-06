@@ -60,7 +60,7 @@ public static partial class ResumeTextParser
         }
 
         return new ParsedResume(ParseSkills(skillLines), ParseWork(workLines), ParseEducation(educationLines),
-            ParseCertifications(certificationLines));
+            ParseCertifications(certificationLines)) { SourceText = text };
     }
 
     private static bool TryGetSection(string line, out Section section)

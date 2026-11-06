@@ -52,6 +52,8 @@ builder.Services.AddOptions<JobHunterOptions>()
 builder.Services.AddInfrastructure(builder.Configuration.GetConnectionString("JobHunterAI")
     ?? throw new InvalidOperationException("ConnectionStrings:JobHunterAI must be configured."));
 builder.Services.AddBackgroundProcessing(builder.Configuration);
+builder.Services.AddOptions<DiscoveryOptions>().Bind(builder.Configuration.GetSection(DiscoveryOptions.SectionName))
+    .Validate(options => options.IsValid(), "Invalid discovery limits.").ValidateOnStart();
 
 WebApplication app = builder.Build();
 
@@ -76,6 +78,10 @@ app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false }
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapDashboardEndpoints();
+app.MapCandidateEndpoints();
+app.MapResumeEndpoints();
+app.MapDiscoveryEndpoints();
+app.MapPackageEndpoints();
 
 app.Run();
 

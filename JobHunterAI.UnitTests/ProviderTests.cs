@@ -98,6 +98,51 @@ public sealed class ProviderTests
         Assert.Null(await new LeverProvider(client).GetJobDetailsAsync("acme", "123", CompanyId));
     }
 
+    [Theory]
+    [InlineData("Remote", WorkArrangement.Remote, null)]
+    [InlineData("Hybrid", WorkArrangement.Hybrid, null)]
+    [InlineData("On-site", WorkArrangement.OnSite, null)]
+    [InlineData("London", null, "London")]
+    [InlineData("", null, null)]
+    public async Task Greenhouse_PreservesUnknownAndPartialLocations(string location, WorkArrangement? arrangement, string? city)
+    {
+        string payload = System.Text.Json.JsonSerializer.Serialize(new { jobs = new[] { new { id = 1, title = "Engineer", content = "Build", absolute_url = "https://example.invalid/job", location = new { name = location } } } });
+        using HttpClient client = Client(_ => payload);
+        JobPosting job = Assert.Single(await new GreenhouseProvider(client).SearchJobsAsync("acme", CompanyId));
+        Assert.Equal(arrangement, job.Location.Arrangement);
+        Assert.Equal(city, job.Location.City);
+        Assert.Equal(arrangement == WorkArrangement.Remote, job.Location.IsRemote);
+    }
+
+    [Theory]
+    [InlineData("hybrid", WorkArrangement.Hybrid)]
+    [InlineData("on-site", WorkArrangement.OnSite)]
+    [InlineData("remote", WorkArrangement.Remote)]
+    [InlineData("unknown", null)]
+    public async Task Lever_UsesExplicitWorkplaceTypeWithPartialGeography(string workplace, WorkArrangement? arrangement)
+    {
+        string payload = System.Text.Json.JsonSerializer.Serialize(new[] { new { id = "one", text = "Engineer", descriptionPlain = "Build", hostedUrl = "https://example.invalid/job", workplaceType = workplace, categories = new { location = "London" } } });
+        using HttpClient client = Client(_ => payload);
+        JobPosting job = Assert.Single(await new LeverProvider(client).SearchJobsAsync("acme", CompanyId));
+        Assert.Equal(arrangement, job.Location.Arrangement);
+        Assert.Equal("London", job.Location.City);
+        Assert.Null(job.Location.Country);
+    }
+
+    [Theory]
+    [InlineData("Hybrid", false, WorkArrangement.Hybrid)]
+    [InlineData("OnSite", false, WorkArrangement.OnSite)]
+    [InlineData("", true, WorkArrangement.Remote)]
+    [InlineData("", false, null)]
+    public async Task Ashby_KeepsFalseRemoteFlagDistinctFromKnownOnsite(string workplace, bool remote, WorkArrangement? arrangement)
+    {
+        string payload = System.Text.Json.JsonSerializer.Serialize(new { jobs = new[] { new { id = "one", title = "Engineer", descriptionPlain = "Build", applyUrl = "https://example.invalid/job", workplaceType = workplace, isRemote = remote } } });
+        using HttpClient client = Client(_ => payload);
+        JobPosting job = Assert.Single(await new AshbyProvider(client).SearchJobsAsync("acme", CompanyId));
+        Assert.Equal(arrangement, job.Location.Arrangement);
+        Assert.Null(job.Location.City);
+    }
+
     private static HttpClient Client(Func<HttpRequestMessage, string> response) => new(
         new StubHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
         {

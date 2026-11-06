@@ -3,8 +3,14 @@
 <PageTitle>Settings — JobHunterAI</PageTitle>
 <MudText Typo="Typo.h4" Component="h1" Class="mb-4">Settings</MudText>
 <MudAlert Severity="Severity.Warning" Class="mb-4">Candidate selection is not authentication. Use this dashboard only in a trusted environment until authentication and authorization are configured.</MudAlert>
-<MudText Class="mb-4">Preferences apply to this browser circuit only. Obtain the candidate ID from your seeded or imported profile. No credentials are stored here.</MudText>
-<MudTextField T="string" Label="Candidate ID" @bind-Value="_candidateId" Immediate="true" ShrinkLabel="true" MaxLength="36" Class="mb-4" />
+<MudText Class="mb-4">Preferences and candidate selection apply to this browser circuit only. Refreshing the browser clears the selection. No credentials are stored here.</MudText>
+@if (Preferences.Candidate is { } candidate)
+{
+    <MudText Class="mb-2">Selected candidate: @candidate.FullName (@candidate.Username)</MudText>
+    <MudButton Href="@($"/candidates/{candidate.Id}/edit")" Class="mb-4">Edit profile</MudButton>
+}
+<MudButton Href="/candidates" Class="mb-4">Switch candidate</MudButton>
+<MudButton OnClick="ClearCandidate" Class="mb-4">Clear selection</MudButton>
 <MudSelect T="int" Label="Default page size" @bind-Value="_pageSize" Class="mb-4">
     <MudSelectItem T="int" Value="10">10</MudSelectItem>
     <MudSelectItem T="int" Value="25">25</MudSelectItem>
@@ -14,24 +20,24 @@
 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save">Save preferences</MudButton>
 @if (_message is not null)
 {
-    <MudAlert Severity="@(_valid ? Severity.Success : Severity.Error)" Class="mt-4">@_message</MudAlert>
+    <MudAlert Severity="Severity.Success" Class="mt-4">@_message</MudAlert>
 }
 @code {
-    private string _candidateId = string.Empty;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
     private int _pageSize;
-    private bool _valid;
     private string? _message;
     protected override void OnInitialized()
     {
-        _candidateId = Preferences.CandidateId == Guid.Empty ? string.Empty : Preferences.CandidateId.ToString();
         _pageSize = Preferences.PageSize;
     }
     private void Save()
     {
-        _valid = Guid.TryParse(_candidateId, out Guid id) && id != Guid.Empty;
-        if (!_valid) { _message = "Enter a valid, nonempty candidate ID."; return; }
-        Preferences.CandidateId = id;
         Preferences.PageSize = _pageSize;
-        _message = $"Candidate {id} selected for this circuit. Open a dashboard page using the navigation menu to load your data. Refreshing the browser clears this selection.";
+        _message = "Preferences saved for this browser circuit.";
+    }
+    private void ClearCandidate()
+    {
+        Preferences.ClearCandidate();
+        Navigation.NavigateTo("/candidates");
     }
 }

@@ -134,6 +134,7 @@ public sealed class BackgroundTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("ConnectionStrings:JobHunterAI", "Host=localhost;Database=tests;Username=tests");
+            builder.UseSetting("Database:SeedDevelopmentData", "false");
             builder.UseSetting("Background:Enabled", "false");
         }
     }

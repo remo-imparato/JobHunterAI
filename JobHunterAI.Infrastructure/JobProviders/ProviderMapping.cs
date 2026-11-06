@@ -51,17 +51,25 @@ internal static class ProviderMapping
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out JsonElement value) &&
         value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    public static JobLocation Location(string? name, bool isRemote = false)
+    public static WorkArrangement? Arrangement(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "remote" => WorkArrangement.Remote,
+        "hybrid" => WorkArrangement.Hybrid,
+        "onsite" or "on-site" or "on site" => WorkArrangement.OnSite,
+        _ => null
+    };
+
+    public static JobLocation Location(string? name, bool isRemote = false, WorkArrangement? arrangement = null)
     {
         string? text = name?.Trim();
-        isRemote |= text?.Contains("remote", StringComparison.OrdinalIgnoreCase) == true;
+        arrangement ??= isRemote ? WorkArrangement.Remote : Arrangement(text);
         string[] parts = text?.Split(',', 2, StringSplitOptions.TrimEntries) ?? [];
-        if (parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1]))
+        if (parts.Length == 2)
         {
-            return new JobLocation(parts[0], parts[1], isRemote);
+            return new JobLocation(parts[0], parts[1], arrangement);
         }
 
-        return new JobLocation(null, null, true);
+        return new JobLocation(Arrangement(text) is null ? text : null, null, arrangement);
     }
 
     public static DateTimeOffset? Timestamp(string? text) =>

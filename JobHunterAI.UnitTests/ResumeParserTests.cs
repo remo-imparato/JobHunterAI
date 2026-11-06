@@ -105,7 +105,7 @@ public sealed class ResumeParserTests
         ResumeParser parser = new(NullLogger<ResumeParser>.Instance);
         using MemoryStream stream = new(new byte[ResumeParser.MaxFileBytes + 1]);
 
-        await Assert.ThrowsAsync<UnsupportedResumeFormatException>(() => parser.ParseAsync(stream, "resume.pdf"));
+        await Assert.ThrowsAsync<ResumeFileTooLargeException>(() => parser.ParseAsync(stream, "resume.pdf"));
     }
 
     [Fact]

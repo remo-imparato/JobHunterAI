@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\JobHunterAI.Api\JobHunterAI.Api.csproj" />
+    <ProjectReference Include="..\JobHunterAI.Web\JobHunterAI.Web.csproj" Aliases="WebHost" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,110 @@
+@page "/search-criteria"
+@implements IDisposable
+@using JobHunterAI.Application.Candidates
+@using JobHunterAI.Domain
+@inject OnboardingClient Client
+@inject DashboardPreferences Preferences
+
+<PageTitle>Search criteria — JobHunterAI</PageTitle>
+<MudText HtmlTag="h1" Typo="Typo.h4" Class="mb-4">Search criteria</MudText>
+<MudAlert Severity="Severity.Info" Class="mb-4">These preferences are saved for the selected candidate. Saving does not start a search. Open Find matching jobs to run bounded discovery with your saved criteria.</MudAlert>
+<MudText Class="mb-4">Enter one value per line, up to 20 entries per list and 200 characters per entry. Matching is case-insensitive substring matching: any title, any configured location, all required keywords, and no excluded keywords. The groups are combined with AND. Leave locations blank for any location. Locations match the reported city/country, including remote-job restrictions; missing locations do not match a configured location.</MudText>
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+@if (_message is not null)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4">@_message</MudAlert>
+}
+@if (_busy)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-4" />
+}
+<EditForm Model="this" OnSubmit="SaveAsync">
+    <MudTextField T="string" Label="Job titles (required, one per line)" @bind-Value="_titles" Lines="4" Immediate="true" MaxLength="4020" Disabled="@(_busy || !_loaded)" Class="mb-4" />
+    <MudTextField T="string" Label="Locations (one per line)" @bind-Value="_locations" Lines="3" Immediate="true" MaxLength="4020" Disabled="@(_busy || !_loaded)" Class="mb-4" />
+    <MudText HtmlTag="h2" Typo="Typo.h6">Allowed work arrangements</MudText>
+    <MudCheckBox T="bool" Label="Remote" @bind-Value="_remote" Disabled="@(_busy || !_loaded)" />
+    <MudCheckBox T="bool" Label="Hybrid" @bind-Value="_hybrid" Disabled="@(_busy || !_loaded)" />
+    <MudCheckBox T="bool" Label="On-site" @bind-Value="_onSite" Disabled="@(_busy || !_loaded)" />
+    <MudCheckBox T="bool" Label="Include jobs with unknown work arrangement" @bind-Value="_includeUnknown" Disabled="@(_busy || !_loaded)" />
+    <MudText Class="mb-4">Unknown is not the same as on-site or hybrid. Provider records without confirmed arrangement data use this separate preference.</MudText>
+    <MudTextField T="string" Label="Required keywords (all must appear in title/description)" @bind-Value="_required" Lines="3" Immediate="true" MaxLength="4020" Disabled="@(_busy || !_loaded)" Class="mb-4" />
+    <MudTextField T="string" Label="Excluded keywords (any rejects the posting)" @bind-Value="_excluded" Lines="3" Immediate="true" MaxLength="4020" Disabled="@(_busy || !_loaded)" Class="mb-4" />
+    <MudButton ButtonType="ButtonType.Submit" Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || !_loaded)">Save criteria</MudButton>
+    <MudButton OnClick="LoadAsync" Disabled="_busy">Reload saved criteria</MudButton>
+</EditForm>
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private string _titles = string.Empty;
+    private string _locations = string.Empty;
+    private string _required = string.Empty;
+    private string _excluded = string.Empty;
+    private bool _remote = true;
+    private bool _hybrid = true;
+    private bool _onSite = true;
+    private bool _includeUnknown = true;
+    private bool _busy;
+    private bool _loaded;
+    private string? _error;
+    private string? _message;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        _loaded = false;
+        _error = _message = null;
+        try
+        {
+            SearchCriteriaInput input = await Client.GetCriteriaAsync(Preferences.CandidateId, _lifetime.Token);
+            _titles = string.Join('\n', input.JobTitles);
+            _locations = string.Join('\n', input.Locations);
+            _required = string.Join('\n', input.RequiredKeywords);
+            _excluded = string.Join('\n', input.ExcludedKeywords);
+            _remote = input.Arrangements.HasFlag(WorkArrangement.Remote);
+            _hybrid = input.Arrangements.HasFlag(WorkArrangement.Hybrid);
+            _onSite = input.Arrangements.HasFlag(WorkArrangement.OnSite);
+            _includeUnknown = input.IncludeUnknownArrangement;
+            _loaded = true;
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _titles = _locations = _required = _excluded = string.Empty;
+            _remote = _hybrid = _onSite = _includeUnknown = true;
+            _loaded = true;
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { _error = "Unable to load criteria. Check API connectivity and migrations, then reload."; }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy || !_loaded) return;
+        WorkArrangement arrangements = (_remote ? WorkArrangement.Remote : 0) | (_hybrid ? WorkArrangement.Hybrid : 0) | (_onSite ? WorkArrangement.OnSite : 0);
+        SearchCriteriaInput input = new(Lines(_titles), Lines(_locations), arrangements, _includeUnknown, Lines(_required), Lines(_excluded));
+        var validation = new SearchCriteriaInputValidator().Validate(input);
+        _message = null;
+        _error = validation.IsValid ? null : string.Join(" ", validation.Errors.Select(x => x.ErrorMessage));
+        if (!validation.IsValid) return;
+        _busy = true;
+        try
+        {
+            await Client.SaveCriteriaAsync(Preferences.CandidateId, input, _lifetime.Token);
+            _message = "Search criteria saved for this candidate. No discovery run was started.";
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException)
+        { _error = exception is HttpRequestException { StatusCode: not null } ? exception.Message : "Unable to save criteria. Check API connectivity and try again."; }
+        finally { _busy = false; }
+    }
+
+    private static string[] Lines(string value) => value.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

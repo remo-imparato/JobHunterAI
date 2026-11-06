@@ -1,0 +1,139 @@
+@page "/resumes"
+@implements IDisposable
+@using JobHunterAI.Application.Resumes
+@inject OnboardingClient Client
+@inject DashboardPreferences Preferences
+
+<PageTitle>Source resumes — JobHunterAI</PageTitle>
+<MudText HtmlTag="h1" Typo="Typo.h4" Class="mb-4">Source resumes</MudText>
+<MudText Class="mb-4">Upload a text-based PDF or DOCX, up to 10 MB, 50 PDF pages and 500,000 extracted characters. The complete extracted text is preserved; scanned documents require OCR. Original file bytes are not retained. Uploading does not change your profile.</MudText>
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+@if (_message is not null)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4">@_message</MudAlert>
+}
+<fieldset disabled="@_busy">
+    <label for="resume-file">Upload a source resume</label>
+    <InputFile id="resume-file" OnChange="UploadAsync" accept=".pdf,.docx" />
+</fieldset>
+@if (_busy)
+{
+    <MudProgressLinear Indeterminate="true" Class="my-4" aria-label="Processing resume" />
+}
+<MudTable T="ResumeSummary" Items="_resumes" Hover="true" Class="mt-4" aria-label="Candidate source resumes">
+    <HeaderContent><MudTh>Name</MudTh><MudTh>Source date (UTC)</MudTh><MudTh>Actions</MudTh></HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">@context.Name</MudTd>
+        <MudTd DataLabel="Source date (UTC)">@context.UploadedAt?.UtcDateTime.ToString("yyyy-MM-dd HH:mm")</MudTd>
+        <MudTd DataLabel="Actions"><MudButton Disabled="@(_busy || context.SourceVersionId is null)" OnClick="@(() => PreviewAsync(context.Id))">Review source</MudButton></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No source resumes found. Upload a PDF or DOCX to begin.</MudText></NoRecordsContent>
+</MudTable>
+<MudStack Row="true" Class="my-4">
+    <MudButton Disabled="@(_busy || _page == 0)" OnClick="@(() => LoadAsync(_page - 1))">Previous</MudButton>
+    <MudText>Page @(_page + 1)</MudText>
+    <MudButton Disabled="@(_busy || _resumes.Count < 10)" OnClick="@(() => LoadAsync(_page + 1))">Next</MudButton>
+    <MudButton Disabled="_busy" OnClick="@(() => LoadAsync(_page))">Refresh list</MudButton>
+</MudStack>
+@if (_preview is { } preview)
+{
+    <MudText HtmlTag="h2" Typo="Typo.h5" Class="mb-2">Review @preview.Resume.Name</MudText>
+    <MudText Class="mb-4">Source version: @preview.Resume.SourceVersionId. The source is immutable; upload a new resume to replace its content. This review identifies the source for this page only, not a global default.</MudText>
+    <MudExpansionPanels>
+        <MudExpansionPanel Text="Complete extracted source text">
+            <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:30rem;overflow:auto">@preview.SourceText</pre>
+        </MudExpansionPanel>
+    </MudExpansionPanels>
+    <MudText HtmlTag="h3" Typo="Typo.h6" Class="mt-4">Proposed profile additions</MudText>
+    <MudAlert Severity="Severity.Info" Class="my-3">Extraction is heuristic, not AI. Review all additions carefully. Unrecognized or incomplete entries may be omitted; the source text is still preserved. Contact details are never overwritten.</MudAlert>
+    @foreach (var skill in preview.ProposedAdditions.Skills)
+    {
+        <MudText>Skill: @skill.Name</MudText>
+    }
+    @foreach (var work in preview.ProposedAdditions.WorkHistory)
+    {
+        <MudText Class="mt-2">Work: @work.Title · @work.Employer · @work.Start.ToString("yyyy-MM") – @(work.End?.ToString("yyyy-MM") ?? "Present")</MudText>
+        <MudText>@work.Description</MudText>
+    }
+    @foreach (var education in preview.ProposedAdditions.Education)
+    {
+        <MudText Class="mt-2">Education: @education.Qualification · @education.Institution · @education.Start.ToString("yyyy-MM") – @(education.End?.ToString("yyyy-MM") ?? "Present")</MudText>
+    }
+    @foreach (var certification in preview.ProposedAdditions.Certifications)
+    {
+        <MudText Class="mt-2">Certification: @certification.Name · @certification.Issuer · @certification.ObtainedOn.ToString("yyyy-MM") · Expires: @(certification.ExpiresOn?.ToString("yyyy-MM") ?? "Not specified")</MudText>
+    }
+    @if (HasAdditions)
+    {
+        <MudCheckBox T="bool" @bind-Value="_confirmImport" Label="I reviewed and approve these profile additions" Disabled="_busy" />
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || !_confirmImport)" OnClick="ImportAsync">Import approved additions</MudButton>
+    }
+    else
+    {
+        <MudText Class="my-3">No new structured additions were recognized. Existing entries are not duplicated.</MudText>
+    }
+}
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private IReadOnlyList<ResumeSummary> _resumes = [];
+    private ResumePreview? _preview;
+    private int _page;
+    private bool _busy;
+    private bool _confirmImport;
+    private string? _error;
+    private string? _message;
+    private bool HasAdditions => _preview is { } p && (p.ProposedAdditions.Skills.Count + p.ProposedAdditions.WorkHistory.Count + p.ProposedAdditions.Education.Count + p.ProposedAdditions.Certifications.Count > 0);
+
+    protected override Task OnInitializedAsync() => LoadAsync(0);
+
+    private Task LoadAsync(int page) => RunAsync(async () =>
+    {
+        _resumes = await Client.ListResumesAsync(Preferences.CandidateId, page, _lifetime.Token);
+        _page = page;
+    });
+
+    private Task UploadAsync(InputFileChangeEventArgs args) => RunAsync(async () =>
+    {
+        _preview = null;
+        IBrowserFile file = args.File;
+        if (file.Size > ResumeUploadLimits.MaxFileBytes) { _error = "The resume file exceeds 10 MB."; return; }
+        await using Stream stream = file.OpenReadStream(ResumeUploadLimits.MaxFileBytes, _lifetime.Token);
+        _preview = await Client.UploadAsync(Preferences.CandidateId, stream, file.Name, _lifetime.Token);
+        _resumes = await Client.ListResumesAsync(Preferences.CandidateId, 0, _lifetime.Token);
+        _page = 0;
+        _message = "Source saved. Review the extracted content before importing any profile additions. Repeated identical uploads reuse the existing source.";
+    });
+
+    private Task PreviewAsync(Guid id) => RunAsync(async () =>
+    {
+        _preview = null;
+        _preview = await Client.PreviewAsync(Preferences.CandidateId, id, _lifetime.Token);
+    });
+
+    private Task ImportAsync() => RunAsync(async () =>
+    {
+        if (_preview is null || !_confirmImport) return;
+        _preview = await Client.ImportAsync(Preferences.CandidateId, _preview.Resume.Id, _lifetime.Token);
+        _message = "Approved additions imported. Existing profile entries and the source resume are unchanged.";
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = _message = null;
+        try { await action(); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or IOException or OperationCanceledException)
+        {
+            _error = exception is HttpRequestException { StatusCode: not null } ? exception.Message : "Unable to process the resume. Check API connectivity and try again.";
+        }
+        finally { _busy = false; _confirmImport = false; }
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

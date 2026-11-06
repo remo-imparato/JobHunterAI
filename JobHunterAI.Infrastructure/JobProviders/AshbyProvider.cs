@@ -49,7 +49,8 @@ public sealed class AshbyProvider(HttpClient httpClient) : IJobProvider
             remoteElement.ValueKind == JsonValueKind.True;
         return ProviderMapping.Job(Name, board, ProviderMapping.Required(element, "id"), companyId,
             ProviderMapping.Required(element, "title"), ProviderMapping.Required(element, "descriptionPlain"),
-            ProviderMapping.Location(ProviderMapping.Optional(element, "location"), remote),
+            ProviderMapping.Location(ProviderMapping.Optional(element, "location"), remote,
+                ProviderMapping.Arrangement(ProviderMapping.Optional(element, "workplaceType"))),
             ProviderMapping.Required(element, "applyUrl"),
             ProviderMapping.Timestamp(ProviderMapping.Optional(element, "publishedAt")));
     }

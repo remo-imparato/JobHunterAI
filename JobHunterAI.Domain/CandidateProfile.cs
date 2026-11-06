@@ -10,21 +10,45 @@ public sealed class CandidateProfile
     private CandidateProfile() { }
 
     public CandidateProfile(Guid id, string fullName, EmailAddress email, string headline)
+        : this(id, fullName, email, headline, $"candidate-{id:N}") { }
+
+    public CandidateProfile(Guid id, string fullName, EmailAddress email, string headline, string username)
     {
         Id = DomainGuard.Id(id, nameof(id));
         FullName = DomainGuard.Required(fullName, nameof(fullName));
         Email = email ?? throw new ArgumentNullException(nameof(email));
         Headline = DomainGuard.Required(headline, nameof(headline));
+        Username = NormalizeUsername(username);
     }
 
     public Guid Id { get; private set; }
     public string FullName { get; private set; } = string.Empty;
+    public string Username { get; private set; } = string.Empty;
     public EmailAddress Email { get; private set; } = null!;
     public string Headline { get; private set; } = string.Empty;
     public IReadOnlyCollection<Skill> Skills => _skills.AsReadOnly();
     public IReadOnlyCollection<WorkExperience> WorkExperiences => _workExperiences.AsReadOnly();
     public IReadOnlyCollection<EducationRecord> EducationRecords => _educationRecords.AsReadOnly();
     public IReadOnlyCollection<Certification> Certifications => _certifications.AsReadOnly();
+
+    public static string NormalizeUsername(string username)
+    {
+        string normalized = DomainGuard.Required(username, nameof(username)).ToLowerInvariant();
+        if (normalized.Length > 64 || normalized.Any(c =>
+            !(c is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '_' or '-')))
+        {
+            throw new ArgumentException("Username must contain 1–64 letters, numbers, dots, underscores or hyphens.", nameof(username));
+        }
+
+        return normalized;
+    }
+
+    public void UpdateProfile(string fullName, EmailAddress email, string headline, string username)
+    {
+        string normalized = NormalizeUsername(username);
+        UpdateContact(fullName, email, headline);
+        Username = normalized;
+    }
 
     public void UpdateContact(string fullName, EmailAddress email, string headline)
     {

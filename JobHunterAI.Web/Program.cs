@@ -28,6 +28,10 @@ builder.Services.AddHttpClient("JobHunterAI.Api", (services, client) =>
 builder.Services.AddMudServices();
 builder.Services.AddHealthChecks().AddCheck<ApiReadinessCheck>("api", tags: ["ready"], timeout: TimeSpan.FromSeconds(5));
 builder.Services.AddScoped<DashboardClient>();
+builder.Services.AddScoped<CandidateClient>();
+builder.Services.AddScoped<OnboardingClient>();
+builder.Services.AddScoped<DiscoveryClient>();
+builder.Services.AddScoped<PackageClient>();
 builder.Services.AddScoped<DashboardPreferences>();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -46,6 +50,7 @@ app.UseHttpsRedirection();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
+app.MapPackageDownloads();
 app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });

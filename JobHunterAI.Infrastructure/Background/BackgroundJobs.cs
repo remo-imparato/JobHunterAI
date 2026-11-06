@@ -12,7 +12,7 @@ namespace JobHunterAI.Infrastructure.Background;
 
 public sealed class BackgroundJobs(
     JobHunterDbContext db, IEnumerable<IJobProvider> providers, ISender sender, IDashboardReader dashboard,
-    IOptions<BackgroundOptions> options, ILogger<BackgroundJobs> logger)
+    IOptions<BackgroundOptions> options, ILogger<BackgroundJobs> logger, IDiscoveryStore discovery)
 {
     private BackgroundOptions Settings => options.Value;
 
@@ -36,11 +36,7 @@ public sealed class BackgroundJobs(
             foreach (JobPosting job in jobs)
             {
                 token.ThrowIfCancellationRequested();
-                if (await db.JobPostings.AnyAsync(x => x.ProviderName == job.ProviderName && x.ExternalId == job.ExternalId, token)) continue;
-                var result = await sender.Send(new SaveJobCommand(job.Id, job.CompanyId, job.ProviderName, job.ExternalId,
-                    job.Title, job.Description, job.Location.City, job.Location.Country, job.Location.IsRemote,
-                    job.ApplicationUrl, job.PostedAt), token);
-                if (!result.IsSuccess) throw new InvalidOperationException("Discovered job could not be saved.");
+                await discovery.UpsertJobAsync(job, token);
                 if (++saved >= Settings.BatchSize) break;
             }
 
@@ -52,12 +48,15 @@ public sealed class BackgroundJobs(
     {
         if (!Settings.EnableAiJobs) return;
         DateTimeOffset cutoff = DateTimeOffset.UtcNow.AddHours(-Settings.ScoreRefreshHours);
-        var jobs = await db.JobPostings.AsNoTracking().Where(j => !db.Set<JobMatchScore>().Any(s =>
+        CandidateSearchCriteria? criteria = await db.Set<CandidateSearchCriteria>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == target.CandidateId, ct);
+        if (criteria is null) return;
+        var jobs = await CandidateMatches(target.CandidateId).Where(j => !db.Set<JobMatchScore>().Any(s =>
                 s.CandidateProfileId == target.CandidateId && s.JobPostingId == j.Id && s.ScoredAt >= cutoff))
-            .OrderByDescending(j => j.PostedAt).ThenBy(j => j.Id).Take(Settings.BatchSize).Select(j => j.Id).ToListAsync(ct);
-        foreach (Guid jobId in jobs)
+            .OrderByDescending(j => j.PostedAt).ThenBy(j => j.Id).Take(Settings.BatchSize).ToListAsync(ct);
+        foreach (JobPosting job in jobs)
         {
-            var result = await sender.Send(new MatchJobCommand(Guid.NewGuid(), target.CandidateId, jobId, DateTimeOffset.UtcNow), ct);
+            if (!Matches(criteria, job)) continue;
+            var result = await sender.Send(new MatchJobCommand(Guid.NewGuid(), target.CandidateId, job.Id, DateTimeOffset.UtcNow), ct);
             if (!result.IsSuccess) throw new InvalidOperationException("Scheduled match scoring failed.");
         }
     }, token, requiresAi: true);
@@ -66,16 +65,27 @@ public sealed class BackgroundJobs(
     {
         if (target.ResumeId is not Guid resumeId) return;
         Resume? resume = await db.Resumes.SingleOrDefaultAsync(r => r.Id == resumeId && r.CandidateProfileId == target.CandidateId, ct);
-        if (resume is null || resume.Versions.Count == 0) throw new InvalidOperationException("Configured resume is missing or has no base version.");
-        var jobs = await db.JobPostings.AsNoTracking().Where(j => !db.Resumes.Where(r => r.Id == resumeId)
+        if (resume?.SourceVersion is null) throw new InvalidOperationException("Configured resume is missing or has no immutable source version.");
+        CandidateSearchCriteria? criteria = await db.Set<CandidateSearchCriteria>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == target.CandidateId, ct);
+        if (criteria is null) return;
+        var jobs = await CandidateMatches(target.CandidateId).Where(j => !db.Resumes.Where(r => r.Id == resumeId)
                 .SelectMany(r => r.Versions).Any(v => v.JobPostingId == j.Id))
-            .OrderByDescending(j => j.PostedAt).ThenBy(j => j.Id).Take(Settings.BatchSize).Select(j => j.Id).ToListAsync(ct);
-        foreach (Guid jobId in jobs)
+            .OrderByDescending(j => j.PostedAt).ThenBy(j => j.Id).Take(Settings.BatchSize).ToListAsync(ct);
+        foreach (JobPosting job in jobs)
         {
-            var result = await sender.Send(new GenerateResumeCommand(resumeId, jobId, Guid.NewGuid(), DateTimeOffset.UtcNow), ct);
+            if (!Matches(criteria, job)) continue;
+            var result = await sender.Send(new GenerateResumeCommand(resumeId, job.Id, Guid.NewGuid(), DateTimeOffset.UtcNow), ct);
             if (!result.IsSuccess) throw new InvalidOperationException("Scheduled resume generation failed.");
         }
     }, token, requiresAi: true);
+
+    private IQueryable<JobPosting> CandidateMatches(Guid candidateId) => db.JobPostings.AsNoTracking().Where(job =>
+        db.Set<JobDiscoveryResult>().Any(result => result.JobPostingId == job.Id &&
+            db.Set<JobDiscoveryRun>().Any(run => run.Id == result.RunId && run.CandidateProfileId == candidateId &&
+                (run.Status == DiscoveryStatus.Completed || run.Status == DiscoveryStatus.CompletedWithWarnings))));
+
+    private static bool Matches(CandidateSearchCriteria criteria, JobPosting job) => criteria.Matches(
+        job.Title, job.Location.City, job.Location.Country, job.Location.Arrangement, job.Description);
 
     public Task MonitorApplicationsAsync(CancellationToken token) => ForCandidatesAsync("ApplicationStatusMonitoring", async (target, ct) =>
     {

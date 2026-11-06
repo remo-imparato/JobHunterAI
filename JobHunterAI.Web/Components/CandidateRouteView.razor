@@ -1,0 +1,29 @@
+@inject DashboardPreferences Preferences
+@inject NavigationManager Navigation
+
+@if (CanDisplay)
+{
+    <RouteView @key="Preferences.CandidateId" RouteData="RouteData" DefaultLayout="typeof(Layout.MainLayout)" />
+}
+else
+{
+    <LayoutView Layout="typeof(Layout.MainLayout)">
+        <MudText Component="h1" Typo="Typo.h4">Select a candidate to continue</MudText>
+        <MudLink Href="/candidates">Open candidate selection</MudLink>
+    </LayoutView>
+}
+
+@code {
+    [Parameter, EditorRequired] public RouteData RouteData { get; set; } = default!;
+
+    public static bool AllowsUnselectedCandidate(Type pageType) =>
+        pageType == typeof(Pages.Candidates) || pageType == typeof(Pages.CandidateEdit) ||
+        pageType == typeof(Pages.Error) || pageType == typeof(Pages.NotFound);
+
+    private bool CanDisplay => Preferences.CandidateId != Guid.Empty || AllowsUnselectedCandidate(RouteData.PageType);
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!CanDisplay) Navigation.NavigateTo("/candidates", replace: true);
+    }
+}

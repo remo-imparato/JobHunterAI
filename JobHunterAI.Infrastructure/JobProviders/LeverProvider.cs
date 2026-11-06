@@ -53,7 +53,7 @@ public sealed class LeverProvider(HttpClient httpClient) : IJobProvider
             StringComparison.OrdinalIgnoreCase);
         return ProviderMapping.Job(Name, board, ProviderMapping.Required(element, "id"), companyId,
             ProviderMapping.Required(element, "text"), ProviderMapping.Required(element, "descriptionPlain"),
-            ProviderMapping.Location(location, remote), ProviderMapping.Required(element, "hostedUrl"),
+            ProviderMapping.Location(location, remote, ProviderMapping.Arrangement(ProviderMapping.Optional(element, "workplaceType"))), ProviderMapping.Required(element, "hostedUrl"),
             ProviderMapping.UnixMilliseconds(element, "createdAt"));
     }
 }

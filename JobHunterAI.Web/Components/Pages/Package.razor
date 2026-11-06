@@ -1,0 +1,128 @@
+@page "/package/{JobId:guid}"
+@implements IDisposable
+@using JobHunterAI.Application.Generation
+@using JobHunterAI.Application.Resumes
+@using JobHunterAI.Domain
+@inject PackageClient Client
+@inject OnboardingClient Onboarding
+@inject DashboardPreferences Preferences
+
+<PageTitle>Application package — JobHunterAI</PageTitle>
+<MudText HtmlTag="h1" Typo="Typo.h4" Class="mb-4">Application package</MudText>
+<MudAlert Severity="Severity.Info" Class="mb-4">Choose the immutable uploaded source for this job. Both AI drafts use that source and the saved job snapshot. Review every fact before using the Markdown documents; AI grounding rules do not guarantee correctness. Nothing is submitted.</MudAlert>
+<MudButton Href="/discovery">Back to discovery</MudButton>
+<MudButton Href="/resumes">Upload a source resume</MudButton>
+<MudSelect T="Guid" Label="Source resume" Value="_resumeId" ValueChanged="SelectAsync" Disabled="_busy" Class="my-4">
+    @foreach (ResumeSummary source in _sources)
+    {
+        <MudSelectItem T="Guid" Value="source.Id">@source.SourceFileName · @source.Id</MudSelectItem>
+    }
+</MudSelect>
+<MudStack Row="true" Class="mb-4">
+    <MudButton Disabled="@(_busy || _page == 0)" OnClick="@(() => SourcesAsync(_page - 1))">Previous sources</MudButton>
+    <MudButton Disabled="@(_busy || _sourcePageCount < 10)" OnClick="@(() => SourcesAsync(_page + 1))">Next sources</MudButton>
+</MudStack>
+<MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_busy || _resumeId == Guid.Empty || _package?.Status == PackageStatus.Completed)" OnClick="GenerateAsync">Generate / retry package</MudButton>
+<MudButton Disabled="@(_busy || _resumeId == Guid.Empty)" OnClick="RefreshAsync">Refresh status</MudButton>
+@if (_busy)
+{
+    <MudProgressLinear Indeterminate="true" Class="my-4" />
+    <MudButton OnClick="Cancel">Cancel request</MudButton>
+}
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="my-4">@_error</MudAlert>
+}
+@if (_package is { } package)
+{
+    <MudText HtmlTag="h2" Typo="Typo.h5" Class="my-4">@package.Company — @package.JobTitle · @package.Status</MudText>
+    @if (package.Status == PackageStatus.Generating)
+    {
+        <MudText>Generation is active or awaiting recovery. Refresh status; retry after lease expiry (@package.LeaseExpiresAt?.ToUniversalTime().ToString("u")).</MudText>
+    }
+    @if (package.FailureCode is not null)
+    {
+        <MudAlert Severity="Severity.Warning">@FailureMessage(package.FailureCode) Saved successful outputs will be reused on retry.</MudAlert>
+    }
+    <MudExpansionPanels Class="my-4">
+        <MudExpansionPanel Text="Job snapshot"><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@package.JobDescription</pre></MudExpansionPanel>
+        <MudExpansionPanel Text="Tailored resume"><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@package.ResumeMarkdown</pre></MudExpansionPanel>
+        <MudExpansionPanel Text="Cover letter"><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@package.CoverLetterMarkdown</pre></MudExpansionPanel>
+    </MudExpansionPanels>
+    @if (package.Status == PackageStatus.Completed)
+    {
+        <MudCheckBox T="bool" Label="I reviewed both documents for accuracy" @bind-Value="_reviewed" />
+        <MudButton Variant="Variant.Filled" Color="Color.Success" Disabled="@(!_reviewed)" Href="@($"/packages/{Preferences.CandidateId}/{package.Id}/download")" download>Download Markdown ZIP</MudButton>
+    }
+}
+
+@code {
+    [Parameter] public Guid JobId { get; set; }
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _request;
+    private IReadOnlyList<ResumeSummary> _sources = [];
+    private Guid _resumeId;
+    private int _page;
+    private int _sourcePageCount;
+    private bool _busy;
+    private bool _reviewed;
+    private string? _error;
+    private PackageView? _package;
+    private Guid _loadedJob;
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedJob == JobId) return;
+        _loadedJob = JobId;
+        _resumeId = Guid.Empty;
+        _package = null;
+        _reviewed = false;
+        await SourcesAsync(0);
+    }
+    private async Task SourcesAsync(int page)
+    {
+        await ExecuteAsync(async token =>
+        {
+            var sources = await Onboarding.ListResumesAsync(Preferences.CandidateId, page, token);
+            _sourcePageCount = sources.Count;
+            _sources = sources.Where(x => x.SourceFileName is not null && x.SourceVersionId.HasValue).ToArray();
+            _page = page;
+        });
+    }
+    private async Task SelectAsync(Guid id)
+    {
+        _resumeId = id;
+        _package = null;
+        _reviewed = false;
+        await RefreshAsync();
+    }
+    private Task RefreshAsync() => ExecuteAsync(async token =>
+    {
+        try { _package = await Client.FindAsync(Preferences.CandidateId, JobId, _resumeId, token); }
+        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound) { _package = null; }
+    });
+    private Task GenerateAsync() => ExecuteAsync(async token =>
+    {
+        _reviewed = false;
+        _package = await Client.GenerateAsync(Preferences.CandidateId, JobId, _resumeId, token);
+    });
+    private async Task ExecuteAsync(Func<CancellationToken, Task> action)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = null;
+        _request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        try { await action(_request.Token); }
+        catch (OperationCanceledException) { if (!_lifetime.IsCancellationRequested) _error = "Request cancelled or timed out. Refresh status before retrying; the server may still be finishing."; }
+        catch (HttpRequestException exception) { _error = exception.StatusCode.HasValue ? exception.Message : "Unable to reach the API. Check connectivity and migrations."; }
+        catch (System.Text.Json.JsonException) { _error = "Unable to read package status. Refresh and try again."; }
+        finally { _request.Dispose(); _request = null; _busy = false; }
+    }
+    public static string FailureMessage(string code) => code switch
+    {
+        "AiUnavailable" => "AI is not configured. Set AI:Endpoint, AI:ApiKey and AI:DeploymentName on the API.",
+        "Cancelled" => "Generation was cancelled or reached its time limit.",
+        _ => "Generation failed. Check AI configuration/connectivity and retry."
+    };
+    private void Cancel() => _request?.Cancel();
+    public void Dispose() { _request?.Cancel(); _lifetime.Cancel(); _lifetime.Dispose(); }
+}

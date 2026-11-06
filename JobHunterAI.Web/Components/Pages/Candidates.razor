@@ -1,0 +1,101 @@
+@page "/candidates"
+@page "/login"
+@using JobHunterAI.Application.Candidates
+@inject CandidateClient Client
+@inject DashboardPreferences Preferences
+@inject NavigationManager Navigation
+
+<PageTitle>Select candidate — JobHunterAI</PageTitle>
+<MudText Component="h1" Typo="Typo.h4" Class="mb-4">Select candidate</MudText>
+<MudAlert Severity="Severity.Warning" Class="mb-4">Candidate selection is not authentication. No password is required. Use this system only in a trusted local/private environment.</MudAlert>
+@if (Preferences.Candidate is { } selected)
+{
+    <MudText Class="mb-4">Currently selected: @selected.FullName (@selected.Username)</MudText>
+}
+<EditForm Model="this" OnSubmit="SearchAsync">
+    <MudTextField T="string" Label="Full name or username" @bind-Value="_search" Immediate="true" MaxLength="200" Class="mb-4" />
+    <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy">Search</MudButton>
+    <MudButton Href="/candidates/new" Disabled="_busy">Create candidate</MudButton>
+</EditForm>
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mt-4">@_error</MudAlert>
+}
+@if (_busy)
+{
+    <MudProgressLinear Indeterminate="true" Class="my-4" />
+}
+<MudTable T="CandidateDto" Items="_results.Items" Hover="true" Class="mt-4" aria-label="Candidate search results">
+    <HeaderContent>
+        <MudTh>Full name</MudTh><MudTh>Username</MudTh><MudTh>Headline</MudTh><MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Full name">@context.FullName</MudTd>
+        <MudTd DataLabel="Username">@context.Username</MudTd>
+        <MudTd DataLabel="Headline">@context.Headline</MudTd>
+        <MudTd DataLabel="Actions">
+            <MudButton Color="Color.Primary" Disabled="_busy" OnClick="@(() => SelectAsync(context.Id))">Select</MudButton>
+            <MudButton Disabled="_busy" Href="@($"/candidates/{context.Id}/edit")">Manage</MudButton>
+        </MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No candidates found. Create a candidate to get started.</MudText></NoRecordsContent>
+</MudTable>
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-4">
+    <MudButton Disabled="@(_busy || _page == 0)" OnClick="PreviousAsync">Previous</MudButton>
+    <MudText>Page @(_page + 1) · @_results.TotalCount candidates</MudText>
+    <MudButton Disabled="@(_busy || (_page + 1) * PageSize >= _results.TotalCount)" OnClick="NextAsync">Next</MudButton>
+</MudStack>
+
+@code {
+    private const int PageSize = 10;
+    private string _search = string.Empty;
+    private string _appliedSearch = string.Empty;
+    private int _page;
+    private CandidatePage _results = new([], 0);
+    private bool _busy;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => LoadAsync(0);
+
+    private Task SearchAsync()
+    {
+        _appliedSearch = _search.Trim();
+        return LoadAsync(0);
+    }
+
+    private Task PreviousAsync() => LoadAsync(_page - 1);
+    private Task NextAsync() => LoadAsync(_page + 1);
+
+    private async Task LoadAsync(int page)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            CandidatePage results = await Client.SearchAsync(_appliedSearch, page, PageSize);
+            _results = results;
+            _page = page;
+        }
+        catch (HttpRequestException) { _error = "Could not load candidates. Check that the API is running and database migrations are applied, then search again."; }
+        finally { _busy = false; }
+    }
+
+    private async Task SelectAsync(Guid id)
+    {
+        if (_busy) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            CandidateDto candidate = await Client.GetAsync(id);
+            Preferences.SelectCandidate(candidate);
+            Navigation.NavigateTo("/");
+        }
+        catch (HttpRequestException exception)
+        {
+            _error = exception.StatusCode.HasValue ? exception.Message : "The candidate service is unavailable. Try again.";
+        }
+        finally { _busy = false; }
+    }
+}

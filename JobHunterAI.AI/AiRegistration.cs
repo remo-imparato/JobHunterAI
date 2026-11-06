@@ -53,6 +53,7 @@ public static class DependencyInjection
 
         services.TryAddSingleton<IResumeDocumentRenderer, ResumeDocumentRenderer>();
         services.TryAddSingleton<StructuredAiClient>();
+        services.TryAddTransient<IPackageDraftingService, GroundedPackageDraftingService>();
         services.TryAddTransient<IJobMatchingService, JobMatchingService>();
         services.TryAddTransient<IResumeTailoringService, ResumeTailoringService>();
         services.TryAddTransient<ICoverLetterService, CoverLetterService>();

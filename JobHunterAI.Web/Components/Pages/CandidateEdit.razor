@@ -1,0 +1,125 @@
+@page "/candidates/new"
+@page "/candidates/{Id:guid}/edit"
+@using JobHunterAI.Application.Candidates
+@inject CandidateClient Client
+@inject DashboardPreferences Preferences
+@inject NavigationManager Navigation
+
+<PageTitle>Candidate profile — JobHunterAI</PageTitle>
+<MudText Component="h1" Typo="Typo.h4" Class="mb-4">@(Id.HasValue ? "Manage candidate" : "Create candidate")</MudText>
+<MudText Class="mb-4">Usernames are unique and stored in lowercase. Full names do not need to be unique. This profile does not provide authentication.</MudText>
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+@foreach (string error in _validationErrors)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-2">@error</MudAlert>
+}
+@if (_busy)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-4" />
+}
+@if (_loaded)
+{
+    <EditForm Model="this" OnSubmit="SaveAsync">
+        <MudTextField T="string" Label="Full name" @bind-Value="_fullName" MaxLength="200" Immediate="true" Disabled="_busy" Class="mb-4" />
+        <MudTextField T="string" Label="Username" @bind-Value="_username" MaxLength="64" Immediate="true" Disabled="_busy" HelperText="Letters, numbers, dots, underscores and hyphens only." Class="mb-4" />
+        <MudTextField T="string" Label="Email" @bind-Value="_email" MaxLength="320" Immediate="true" Disabled="_busy" Class="mb-4" />
+        <MudTextField T="string" Label="Headline" @bind-Value="_headline" MaxLength="300" Immediate="true" Disabled="_busy" Class="mb-4" />
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="_busy">@(Id.HasValue ? "Save changes" : "Create and select candidate")</MudButton>
+        <MudButton Href="/candidates" Disabled="_busy">Back to candidates</MudButton>
+    </EditForm>
+    @if (Id.HasValue)
+    {
+        <MudDivider Class="my-6" />
+        <MudText Class="mb-2">Deletion is permanent. Candidates with resumes, documents, applications or history cannot be deleted.</MudText>
+        @if (!_confirmDelete)
+        {
+            <MudButton Color="Color.Error" Disabled="_busy" OnClick="@(() => _confirmDelete = true)">Delete candidate</MudButton>
+        }
+        else
+        {
+            <MudAlert Severity="Severity.Warning" Class="mb-2">Delete @_fullName (@_username)? This cannot be undone.</MudAlert>
+            <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="_busy" OnClick="DeleteAsync">Confirm deletion</MudButton>
+            <MudButton Disabled="_busy" OnClick="@(() => _confirmDelete = false)">Cancel deletion</MudButton>
+        }
+    }
+}
+else if (!_busy)
+{
+    <MudButton Href="/candidates">Back to candidates</MudButton>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+    private string _fullName = string.Empty;
+    private string _username = string.Empty;
+    private string _email = string.Empty;
+    private string _headline = string.Empty;
+    private string? _error;
+    private string[] _validationErrors = [];
+    private bool _busy;
+    private bool _loaded;
+    private bool _confirmDelete;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _error = null;
+        _validationErrors = [];
+        _confirmDelete = false;
+        _loaded = false;
+        _fullName = _username = _email = _headline = string.Empty;
+        if (Id is not Guid id) { _loaded = true; return; }
+        _busy = true;
+        try
+        {
+            CandidateDto candidate = await Client.GetAsync(id);
+            _fullName = candidate.FullName;
+            _username = candidate.Username;
+            _email = candidate.Email;
+            _headline = candidate.Headline;
+            _loaded = true;
+        }
+        catch (HttpRequestException exception) { ShowError(exception); }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy) return;
+        CandidateInput input = new(_fullName, _username, _email, _headline);
+        var validation = new CandidateInputValidator().Validate(input);
+        _validationErrors = validation.Errors.Select(x => x.ErrorMessage).Distinct().ToArray();
+        _error = null;
+        if (!validation.IsValid) return;
+        _busy = true;
+        try
+        {
+            CandidateDto saved = await Client.SaveAsync(Id, input);
+            if (!Id.HasValue || Preferences.CandidateId == saved.Id)
+                Preferences.SelectCandidate(saved);
+            Navigation.NavigateTo(Id.HasValue ? "/candidates" : "/");
+        }
+        catch (HttpRequestException exception) { ShowError(exception); }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_busy || !_confirmDelete || !Id.HasValue) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Client.DeleteAsync(Id.Value);
+            if (Preferences.CandidateId == Id.Value) Preferences.ClearCandidate();
+            Navigation.NavigateTo("/candidates");
+        }
+        catch (HttpRequestException exception) { ShowError(exception); }
+        finally { _busy = false; }
+    }
+
+    private void ShowError(HttpRequestException exception) => _error = exception.StatusCode.HasValue
+        ? exception.Message : "The candidate service is unavailable. Try again.";
+}

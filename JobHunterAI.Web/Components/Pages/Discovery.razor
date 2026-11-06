@@ -1,0 +1,145 @@
+@page "/discovery"
+@implements IDisposable
+@using JobHunterAI.Application.Jobs
+@inject DiscoveryClient Client
+@inject DashboardPreferences Preferences
+
+<PageTitle>Find matching jobs — JobHunterAI</PageTitle>
+<MudText HtmlTag="h1" Typo="Typo.h4" Class="mb-4">Find matching jobs</MudText>
+<MudAlert Severity="Severity.Info" Class="mb-4">Searches saved postings and configured Greenhouse, Lever and Ashby boards using your saved criteria. This is not a whole-internet search. No AI calls, document generation or applications are triggered here.</MudAlert>
+<MudButton Href="/search-criteria" Class="mb-4">Edit search criteria</MudButton>
+<MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="StartAsync" Disabled="@(_busy || _loading)" Class="mb-4">Start search</MudButton>
+@if (_busy)
+{
+    <MudButton Color="Color.Warning" OnClick="Cancel" Class="mb-4">Cancel search</MudButton>
+    <MudProgressLinear Indeterminate="true" aria-label="Searching configured sources" Class="mb-4" />
+    <MudText Class="mb-4">Searching within configured limits. Cancellation is best effort; partial results are retained.</MudText>
+}
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+}
+@if (_message is not null)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">@_message</MudAlert>
+}
+@if (_lastRunId is Guid lastRun)
+{
+    <MudText Class="mb-2">Latest requested run: @lastRun</MudText>
+    <MudButton Disabled="@(_busy || _loading)" OnClick="@(() => OpenAsync(lastRun))">Refresh latest run</MudButton>
+}
+<MudText HtmlTag="h2" Typo="Typo.h5" Class="my-4">Search history</MudText>
+<MudTable T="DiscoveryRunSummary" Items="_history" Hover="true" aria-label="Candidate search history">
+    <HeaderContent><MudTh>Started (UTC)</MudTh><MudTh>Status</MudTh><MudTh>Examined</MudTh><MudTh>Matches</MudTh><MudTh>Actions</MudTh></HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Started (UTC)">@context.StartedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+        <MudTd DataLabel="Status">@context.Status</MudTd>
+        <MudTd DataLabel="Examined">@context.ExaminedJobs</MudTd>
+        <MudTd DataLabel="Matches">@context.MatchCount</MudTd>
+        <MudTd DataLabel="Actions"><MudButton Disabled="@(_busy || _loading)" OnClick="@(() => OpenAsync(context.Id))">View results</MudButton></MudTd>
+    </RowTemplate>
+    <NoRecordsContent><MudText>No searches found for this candidate.</MudText></NoRecordsContent>
+</MudTable>
+<MudStack Row="true" Class="my-4">
+    <MudButton Disabled="@(_busy || _loading || _page == 0)" OnClick="@(() => HistoryAsync(_page - 1))">Previous</MudButton>
+    <MudText>Page @(_page + 1)</MudText>
+    <MudButton Disabled="@(_busy || _loading || _history.Count < 10)" OnClick="@(() => HistoryAsync(_page + 1))">Next</MudButton>
+    <MudButton Disabled="@(_busy || _loading)" OnClick="@(() => HistoryAsync(_page))">Refresh history</MudButton>
+</MudStack>
+@if (_details is { } details)
+{
+    <MudText HtmlTag="h2" Typo="Typo.h5" Class="mb-3">Results: @details.Run.Status · @details.Run.MatchCount matches</MudText>
+    @foreach (string warning in details.Run.Warnings)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-2">@warning</MudAlert>
+    }
+    <MudExpansionPanels>
+        <MudExpansionPanel Text="Saved criteria used for this run"><pre style="white-space:pre-wrap;overflow-wrap:anywhere">@details.CriteriaSnapshot</pre></MudExpansionPanel>
+        @foreach (DiscoveryJob job in details.Jobs)
+        {
+            <MudExpansionPanel Text="@($"{job.Company} — {job.Title}")">
+                <MudText>@job.City @job.Country · @(job.Arrangement?.ToString() ?? "Unknown work arrangement")</MudText>
+                <MudButton Href="@($"/package/{job.JobId}")">Prepare application package</MudButton>
+                @if (SafeLink(job.ApplicationUrl))
+                {
+                    <MudLink Href="@job.ApplicationUrl" Target="_blank" rel="noopener noreferrer">Open employer posting</MudLink>
+                }
+                <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:30rem;overflow:auto">@job.Description</pre>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+    @if (details.Jobs.Count == 0)
+    {
+        <MudText Class="my-4">No matching jobs in this bounded run. Review criteria, source warnings, and configured boards.</MudText>
+    }
+}
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _runCancellation;
+    private IReadOnlyList<DiscoveryRunSummary> _history = [];
+    private DiscoveryRunDetails? _details;
+    private Guid? _lastRunId;
+    private int _page;
+    private bool _busy;
+    private bool _loading;
+    private string? _error;
+    private string? _message;
+
+    protected override Task OnInitializedAsync() => HistoryAsync(0);
+    private async Task HistoryAsync(int page)
+    {
+        if (_loading) return;
+        _loading = true;
+        _error = null;
+        try { _history = await Client.ListAsync(Preferences.CandidateId, page, _lifetime.Token); _page = page; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (IsRequestFailure(exception)) { ShowError(exception); }
+        finally { _loading = false; }
+    }
+    private async Task OpenAsync(Guid runId)
+    {
+        if (_loading) return;
+        _loading = true;
+        _error = null;
+        _details = null;
+        try { _details = await Client.DetailsAsync(Preferences.CandidateId, runId, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (IsRequestFailure(exception)) { ShowError(exception); }
+        finally { _loading = false; }
+    }
+    private async Task StartAsync()
+    {
+        if (_busy || _loading) return;
+        _busy = true;
+        _details = null;
+        _error = _message = null;
+        Guid runId = Guid.NewGuid();
+        _lastRunId = runId;
+        _runCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        try { _details = await Client.StartAsync(Preferences.CandidateId, runId, _runCancellation.Token); }
+        catch (OperationCanceledException) when (!_lifetime.IsCancellationRequested)
+        { _message = "Cancellation or request timeout reached. Refresh the run/history to see its persisted status and partial results."; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (IsRequestFailure(exception)) { ShowError(exception); }
+        finally
+        {
+            _runCancellation.Dispose();
+            _runCancellation = null;
+            _busy = false;
+        }
+        if (!_lifetime.IsCancellationRequested)
+        {
+            string? error = _error;
+            await HistoryAsync(0);
+            _error ??= error;
+        }
+    }
+    private void Cancel() => _runCancellation?.Cancel();
+    public static bool SafeLink(string value) => Uri.TryCreate(value, UriKind.Absolute, out Uri? uri) &&
+        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) && string.IsNullOrEmpty(uri.UserInfo);
+    private static bool IsRequestFailure(Exception exception) => exception is HttpRequestException or System.Text.Json.JsonException or OperationCanceledException;
+    private void ShowError(Exception exception) => _error = exception is HttpRequestException { StatusCode: not null }
+        ? exception.Message : "Unable to load discovery data. Check API connectivity and migrations, then refresh.";
+    public void Dispose() { _runCancellation?.Cancel(); _lifetime.Cancel(); _lifetime.Dispose(); }
+}

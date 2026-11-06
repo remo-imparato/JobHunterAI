@@ -143,6 +143,108 @@ namespace JobHunterAI.Infrastructure.Migrations
                     b.ToTable("application_events", "public");
                 });
 
+            modelBuilder.Entity("JobHunterAI.Domain.ApplicationPackage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApplicationUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("Arrangement")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CandidateProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("City")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("CompanyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CompanyName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Country")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CoverLetterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CoverLetterMarkdown")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("JobDescription")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("JobPostingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("JobTitle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("LeaseExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ResumeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResumeMarkdown")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ResumeVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SourceVersionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("CoverLetterId");
+
+                    b.HasIndex("JobPostingId");
+
+                    b.HasIndex("ResumeId");
+
+                    b.HasIndex("ResumeVersionId");
+
+                    b.HasIndex("SourceVersionId");
+
+                    b.HasIndex("CandidateProfileId", "JobPostingId", "ResumeId")
+                        .IsUnique();
+
+                    b.ToTable("application_packages", "public");
+                });
+
             modelBuilder.Entity("JobHunterAI.Domain.CandidateProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -159,6 +261,11 @@ namespace JobHunterAI.Infrastructure.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("character varying(300)");
 
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<uint>("xmin")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -167,7 +274,51 @@ namespace JobHunterAI.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("candidate_profiles", "public");
+                    b.HasIndex("Username")
+                        .IsUnique();
+
+                    b.ToTable("candidate_profiles", "public", t =>
+                        {
+                            t.HasCheckConstraint("CK_candidate_profiles_Username", "\"Username\" ~ '^[a-z0-9._-]{1,64}$'");
+                        });
+                });
+
+            modelBuilder.Entity("JobHunterAI.Domain.CandidateSearchCriteria", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Arrangements")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<string[]>("ExcludedKeywords")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<bool>("IncludeUnknownArrangement")
+                        .HasColumnType("boolean");
+
+                    b.PrimitiveCollection<string[]>("JobTitles")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("Locations")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.PrimitiveCollection<string[]>("RequiredKeywords")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("candidate_search_criteria", "public");
                 });
 
             modelBuilder.Entity("JobHunterAI.Domain.Certification", b =>
@@ -296,6 +447,68 @@ namespace JobHunterAI.Infrastructure.Migrations
                     b.ToTable("education_records", "public");
                 });
 
+            modelBuilder.Entity("JobHunterAI.Domain.JobDiscoveryResult", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("JobPostingId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RunId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JobPostingId");
+
+                    b.HasIndex("RunId", "JobPostingId")
+                        .IsUnique();
+
+                    b.ToTable("job_discovery_results", "public");
+                });
+
+            modelBuilder.Entity("JobHunterAI.Domain.JobDiscoveryRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CandidateProfileId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CriteriaSnapshot")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("ExaminedJobs")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.PrimitiveCollection<string[]>("Warnings")
+                        .IsRequired()
+                        .HasColumnType("text[]");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CandidateProfileId", "StartedAt");
+
+                    b.ToTable("job_discovery_runs", "public");
+                });
+
             modelBuilder.Entity("JobHunterAI.Domain.JobMatchScore", b =>
                 {
                     b.Property<Guid>("Id")
@@ -407,6 +620,17 @@ namespace JobHunterAI.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("SourceFileName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SourceSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourceText")
+                        .HasColumnType("text");
+
                     b.Property<uint>("xmin")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -417,13 +641,15 @@ namespace JobHunterAI.Infrastructure.Migrations
 
                     b.HasIndex("CandidateProfileId");
 
+                    b.HasIndex("CandidateProfileId", "SourceSha256")
+                        .IsUnique();
+
                     b.ToTable("resumes", "public");
                 });
 
             modelBuilder.Entity("JobHunterAI.Domain.ResumeVersion", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<string>("ContentMarkdown")
@@ -432,6 +658,9 @@ namespace JobHunterAI.Infrastructure.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsSource")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid?>("JobPostingId")
                         .HasColumnType("uuid");
@@ -446,10 +675,17 @@ namespace JobHunterAI.Infrastructure.Migrations
 
                     b.HasIndex("JobPostingId");
 
+                    b.HasIndex("ResumeId")
+                        .IsUnique()
+                        .HasFilter("\"IsSource\"");
+
                     b.HasIndex("ResumeId", "VersionNumber")
                         .IsUnique();
 
-                    b.ToTable("resume_versions", "public");
+                    b.ToTable("resume_versions", "public", t =>
+                        {
+                            t.HasCheckConstraint("CK_resume_versions_SourceNotTailored", "NOT \"IsSource\" OR \"JobPostingId\" IS NULL");
+                        });
                 });
 
             modelBuilder.Entity("JobHunterAI.Domain.Skill", b =>
@@ -548,6 +784,49 @@ namespace JobHunterAI.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("JobHunterAI.Domain.ApplicationPackage", b =>
+                {
+                    b.HasOne("JobHunterAI.Domain.CandidateProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CandidateProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("JobHunterAI.Domain.Company", null)
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("JobHunterAI.Domain.CoverLetter", null)
+                        .WithMany()
+                        .HasForeignKey("CoverLetterId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("JobHunterAI.Domain.JobPosting", null)
+                        .WithMany()
+                        .HasForeignKey("JobPostingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("JobHunterAI.Domain.Resume", null)
+                        .WithMany()
+                        .HasForeignKey("ResumeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("JobHunterAI.Domain.ResumeVersion", null)
+                        .WithMany()
+                        .HasForeignKey("ResumeVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("JobHunterAI.Domain.ResumeVersion", null)
+                        .WithMany()
+                        .HasForeignKey("SourceVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("JobHunterAI.Domain.CandidateProfile", b =>
                 {
                     b.OwnsOne("JobHunterAI.Domain.EmailAddress", "Email", b1 =>
@@ -570,6 +849,15 @@ namespace JobHunterAI.Infrastructure.Migrations
                         });
 
                     b.Navigation("Email")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JobHunterAI.Domain.CandidateSearchCriteria", b =>
+                {
+                    b.HasOne("JobHunterAI.Domain.CandidateProfile", null)
+                        .WithOne()
+                        .HasForeignKey("JobHunterAI.Domain.CandidateSearchCriteria", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -606,12 +894,36 @@ namespace JobHunterAI.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("JobHunterAI.Domain.JobDiscoveryResult", b =>
+                {
+                    b.HasOne("JobHunterAI.Domain.JobPosting", null)
+                        .WithMany()
+                        .HasForeignKey("JobPostingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("JobHunterAI.Domain.JobDiscoveryRun", null)
+                        .WithMany("Results")
+                        .HasForeignKey("RunId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("JobHunterAI.Domain.JobDiscoveryRun", b =>
+                {
+                    b.HasOne("JobHunterAI.Domain.CandidateProfile", null)
+                        .WithMany()
+                        .HasForeignKey("CandidateProfileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("JobHunterAI.Domain.JobMatchScore", b =>
                 {
                     b.HasOne("JobHunterAI.Domain.CandidateProfile", null)
                         .WithMany()
                         .HasForeignKey("CandidateProfileId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("JobHunterAI.Domain.JobPosting", null)
@@ -633,6 +945,10 @@ namespace JobHunterAI.Infrastructure.Migrations
                         {
                             b1.Property<Guid>("JobPostingId")
                                 .HasColumnType("uuid");
+
+                            b1.Property<int?>("Arrangement")
+                                .HasColumnType("integer")
+                                .HasColumnName("WorkArrangement");
 
                             b1.Property<string>("City")
                                 .HasMaxLength(200)
@@ -715,6 +1031,11 @@ namespace JobHunterAI.Infrastructure.Migrations
                     b.Navigation("Skills");
 
                     b.Navigation("WorkExperiences");
+                });
+
+            modelBuilder.Entity("JobHunterAI.Domain.JobDiscoveryRun", b =>
+                {
+                    b.Navigation("Results");
                 });
 
             modelBuilder.Entity("JobHunterAI.Domain.Resume", b =>

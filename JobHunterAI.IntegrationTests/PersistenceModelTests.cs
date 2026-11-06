@@ -18,7 +18,7 @@ public sealed class PersistenceModelTests
         using JobHunterDbContext context = new(new DbContextOptionsBuilder<JobHunterDbContext>()
             .UseNpgsql(TestConnection).Options);
 
-        Assert.Equal(16, context.Model.GetEntityTypes().Count());
+        Assert.Equal(20, context.Model.GetEntityTypes().Count());
         Assert.True(context.Model.FindEntityType(typeof(CandidateProfile))!
             .FindNavigation(nameof(CandidateProfile.Skills))!.IsEagerLoaded);
         Assert.True(context.Model.FindEntityType(typeof(DomainApplication))!

@@ -1,5 +1,11 @@
 using System.Net;
+using System.Net.Http.Json;
+using JobHunterAI.Application.Candidates;
 using JobHunterAI.Application.Dashboard;
+using JobHunterAI.Application.Jobs;
+using JobHunterAI.Application.Generation;
+using JobHunterAI.Application.Resumes;
+using JobHunterAI.Domain;
 using JobHunterAI.Web;
 using JobHunterAI.Web.Components.Dashboard;
 using JobHunterAI.Web.Components.Pages;
@@ -16,42 +22,68 @@ namespace JobHunterAI.UnitTests;
 public sealed class CandidateSelectionTests
 {
     [Fact]
-    public async Task Save_WithoutBlur_UsesSelectedCandidateForSubsequentRequests()
+    public async Task SelectAndSwitch_UsesSelectedCandidateForSubsequentRequests()
     {
         await using Harness harness = new();
         await harness.Renderer.Dispatcher.InvokeAsync(async () =>
         {
-            int settings = await harness.Renderer.RenderAsync<Settings>();
-            Guid first = Guid.Parse("d9e89b8f-bea9-4b17-8d97-453b9611d74f");
-            await harness.Renderer.EnterCandidateAsync(settings, first.ToString());
-            await harness.Renderer.ClickSaveAsync(settings);
-            Assert.Equal(first, harness.Preferences.CandidateId);
-            await AssertRequestsAsync(harness, first);
+            foreach (CandidateDto candidate in harness.Factory.Candidates)
+            {
+                int page = await harness.Renderer.RenderAsync<Candidates>();
+                MudButton[] buttons = harness.Renderer.Find<MudButton>(page)
+                    .Where(button => button.Color == Color.Primary && button.ButtonType != ButtonType.Submit).ToArray();
+                int index = Array.IndexOf(harness.Factory.Candidates, candidate);
+                await buttons[index].OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
+                Assert.Equal(candidate.Id, harness.Preferences.CandidateId);
+                Assert.Equal(candidate, harness.Preferences.Candidate);
+                await AssertRequestsAsync(harness, candidate.Id);
+            }
+        });
+    }
 
-            Guid second = Guid.NewGuid();
-            await harness.Renderer.EnterCandidateAsync(settings, second.ToString());
-            await harness.Renderer.ClickSaveAsync(settings);
-            Assert.Equal(second, harness.Preferences.CandidateId);
-            await AssertRequestsAsync(harness, second);
+    [Fact]
+    public async Task Discovery_StartHistoryDetailsAndCandidateSwitchUseSelectedContext()
+    {
+        await using Harness harness = new();
+        await harness.Renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            foreach (CandidateDto candidate in harness.Factory.Candidates)
+            {
+                harness.Preferences.SelectCandidate(candidate);
+                int page = await harness.Renderer.RenderAsync<Discovery>();
+                Assert.Equal($"/api/candidates/{candidate.Id}/discovery", harness.Factory.Requests[^1].AbsolutePath);
+                MudButton start = Assert.Single(harness.Renderer.Find<MudButton>(page), x => x.Variant == Variant.Filled);
+                await start.OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
+                Assert.Equal(candidate.Id, harness.Factory.DiscoveryCandidate);
+                MudTable<DiscoveryRunSummary> table = Assert.Single(harness.Renderer.Find<MudTable<DiscoveryRunSummary>>(page));
+                Assert.Single(table.Items!);
+                MudButton refresh = harness.Renderer.Find<MudButton>(page).First(x => x.Href is null && x.Variant == Variant.Text);
+                await refresh.OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
+            }
         });
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("not-a-guid")]
-    [InlineData("00000000-0000-0000-0000-000000000000")]
-    public async Task Save_InvalidCandidate_PreservesExistingSelection(string input)
+    [InlineData("https://example.invalid/job", true)]
+    [InlineData("http://example.invalid/job", true)]
+    [InlineData("javascript:alert(1)", false)]
+    [InlineData("https://user:password@example.invalid/", false)]
+    [InlineData("/relative", false)]
+    public void Discovery_OnlyUsesAbsoluteCredentialFreeHttpLinks(string link, bool expected) => Assert.Equal(expected, Discovery.SafeLink(link));
+
+    [Fact]
+    public async Task Settings_ClearSelection_RemovesCandidateContext()
     {
         await using Harness harness = new();
         await harness.Renderer.Dispatcher.InvokeAsync(async () =>
         {
-            Guid existing = Guid.NewGuid();
-            harness.Preferences.CandidateId = existing;
+            harness.Preferences.SelectCandidate(harness.Factory.Candidates[0]);
             int settings = await harness.Renderer.RenderAsync<Settings>();
-            await harness.Renderer.EnterCandidateAsync(settings, input);
-            await harness.Renderer.ClickSaveAsync(settings);
-            Assert.Equal(existing, harness.Preferences.CandidateId);
-            Assert.Contains(harness.Renderer.Find<MudAlert>(settings), alert => alert.Severity == Severity.Error);
+            MudButton clear = Assert.Single(harness.Renderer.Find<MudButton>(settings)
+                .Where(button => button.Href is null && button.Variant != Variant.Filled));
+            await clear.OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
+            Assert.Equal(Guid.Empty, harness.Preferences.CandidateId);
+            Assert.Null(harness.Preferences.Candidate);
             Assert.Empty(harness.Factory.Requests);
         });
     }
@@ -68,6 +100,30 @@ public sealed class CandidateSelectionTests
         preferences.CandidateId = Guid.NewGuid();
         Assert.Same(preferences, first.ServiceProvider.GetRequiredService<DashboardPreferences>());
         Assert.Equal(Guid.Empty, second.ServiceProvider.GetRequiredService<DashboardPreferences>().CandidateId);
+    }
+
+    [Fact]
+    public async Task Package_SelectSourceGenerateReviewAndDownloadUseCandidateContext()
+    {
+        await using Harness harness = new();
+        await harness.Renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            harness.Preferences.SelectCandidate(harness.Factory.Candidates[0]);
+            Guid job = Guid.NewGuid();
+            int page = await harness.Renderer.RenderAsync<Package>(new Dictionary<string, object?> { [nameof(Package.JobId)] = job });
+            MudSelect<Guid> select = Assert.Single(harness.Renderer.Find<MudSelect<Guid>>(page));
+            await select.ValueChanged.InvokeAsync(harness.Factory.Source.Id);
+            MudButton generate = Assert.Single(harness.Renderer.Find<MudButton>(page), x => x.Variant == Variant.Filled && x.Color == Color.Primary);
+            await generate.OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
+            MudButton download = Assert.Single(harness.Renderer.Find<MudButton>(page), x => x.Color == Color.Success);
+            Assert.True(download.Disabled);
+            MudCheckBox<bool> review = Assert.Single(harness.Renderer.Find<MudCheckBox<bool>>(page));
+            await review.ValueChanged.InvokeAsync(true);
+            Assert.False(download.Disabled);
+            Assert.StartsWith($"/packages/{harness.Preferences.CandidateId}/", download.Href);
+            Assert.EndsWith("/download", download.Href);
+            Assert.Equal("AI is not configured. Set AI:Endpoint, AI:ApiKey and AI:DeploymentName on the API.", Package.FailureMessage("AiUnavailable"));
+        });
     }
 
     private static async Task AssertRequestsAsync(Harness harness, Guid candidate)
@@ -107,6 +163,10 @@ public sealed class CandidateSelectionTests
             services.AddSingleton<IHttpClientFactory>(Factory);
             services.AddScoped<DashboardPreferences>();
             services.AddScoped<DashboardClient>();
+            services.AddScoped<CandidateClient>();
+            services.AddScoped<OnboardingClient>();
+            services.AddScoped<DiscoveryClient>();
+            services.AddScoped<PackageClient>();
             _provider = services.BuildServiceProvider();
             _scope = _provider.CreateAsyncScope();
             Renderer = new TestRenderer(_scope.ServiceProvider, _scope.ServiceProvider.GetRequiredService<ILoggerFactory>());
@@ -196,14 +256,47 @@ public sealed class CandidateSelectionTests
     private sealed class RecordingFactory : IHttpClientFactory
     {
         public List<Uri> Requests { get; } = [];
-        public HttpClient CreateClient(string name) => new(new Handler(Requests)) { BaseAddress = new Uri("https://localhost/") };
+        public Guid DiscoveryCandidate { get; set; }
+        public DiscoveryRunSummary? DiscoveryRun { get; set; }
+        public ResumeSummary Source { get; } = new(Guid.NewGuid(), "Uploaded", Guid.NewGuid(), "resume.docx", DateTimeOffset.UtcNow);
+        public CandidateDto[] Candidates { get; } =
+        [
+            new(Guid.NewGuid(), "Same Name", "first", "first@example.invalid", "Engineer"),
+            new(Guid.NewGuid(), "Same Name", "second", "second@example.invalid", "Architect")
+        ];
+        public HttpClient CreateClient(string name) => new(new Handler(this, Requests, Candidates)) { BaseAddress = new Uri("https://localhost/") };
     }
 
-    private sealed class Handler(List<Uri> requests) : HttpMessageHandler
+    private sealed class Handler(RecordingFactory factory, List<Uri> requests, CandidateDto[] candidates) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             requests.Add(request.RequestUri!);
+            if (request.RequestUri!.AbsolutePath.EndsWith("/resumes", StringComparison.Ordinal))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new[] { factory.Source }) });
+            if (request.RequestUri.AbsolutePath.Contains("/packages", StringComparison.Ordinal))
+            {
+                PackageView package = new(Guid.NewGuid(), Guid.Parse(request.RequestUri.AbsolutePath.Split('/')[3]), Guid.NewGuid(), factory.Source.Id,
+                    factory.Source.SourceVersionId!.Value, PackageStatus.Completed, "Acme", "Engineer", "Job snapshot", "https://example.invalid/job", "Resume", "Letter", null, null);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(package) });
+            }
+            if (request.RequestUri!.AbsolutePath.Contains("/discovery", StringComparison.Ordinal))
+            {
+                factory.DiscoveryCandidate = Guid.Parse(request.RequestUri.AbsolutePath.Split('/')[3]);
+                if (request.Method == HttpMethod.Post)
+                    factory.DiscoveryRun = new(Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DiscoveryStatus.Completed, 0, 0, []);
+                object body = request.Method == HttpMethod.Get && request.RequestUri.AbsolutePath.EndsWith("/discovery", StringComparison.Ordinal)
+                    ? (factory.DiscoveryRun is null ? Array.Empty<DiscoveryRunSummary>() : new[] { factory.DiscoveryRun })
+                    : new DiscoveryRunDetails(factory.DiscoveryRun!, "{}", []);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(body) });
+            }
+            if (request.RequestUri!.AbsolutePath.StartsWith("/api/candidates", StringComparison.Ordinal))
+            {
+                string path = request.RequestUri.AbsolutePath;
+                object body = path == "/api/candidates" ? new CandidatePage(candidates, candidates.Length)
+                    : candidates.Single(candidate => path.EndsWith(candidate.Id.ToString(), StringComparison.Ordinal));
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(body) });
+            }
             string json = request.RequestUri!.AbsolutePath.EndsWith("summary", StringComparison.Ordinal)
                 ? "{\"jobs\":0,\"applications\":0,\"resumeVersions\":0,\"coverLetters\":0,\"runningExecutions\":0,\"applicationStatuses\":[]}"
                 : "{\"items\":[],\"totalCount\":0}";
