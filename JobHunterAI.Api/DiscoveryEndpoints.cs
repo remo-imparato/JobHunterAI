@@ -30,6 +30,13 @@ public static class DiscoveryEndpoints
             string id = queue.Enqueue<ScheduledCandidateSearch>(job => job.RunAsync(candidateId, input.RunId, CancellationToken.None));
             return Results.Accepted($"/api/candidates/{candidateId}/discovery/{input.RunId}", new QueuedDiscovery(input.RunId, id));
         });
+        group.MapDelete("/stored-jobs", async (Guid candidateId, ISender sender, CancellationToken token) =>
+        {
+            Result<int> result = await sender.Send(new ClearStoredJobsCommand(candidateId), token);
+            return result.IsSuccess
+                ? Results.Ok(result.Value)
+                : Results.Problem(statusCode: result.Error == ErrorKind.NotFound ? 404 : 409, title: result.Message);
+        });
         group.MapGet("/", async (Guid candidateId, ISender sender, CancellationToken token, int page = 0, int pageSize = 10) =>
             Respond(await sender.Send(new ListDiscoveryQuery(candidateId, page, pageSize), token)));
         group.MapGet("/{runId:guid}", async (Guid candidateId, Guid runId, ISender sender, CancellationToken token) =>

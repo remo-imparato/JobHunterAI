@@ -13,4 +13,6 @@ public sealed class DiscoveryClient(OnboardingClient client)
         client.SendAsync<IReadOnlyList<DiscoveryRunSummary>>(HttpMethod.Get, $"api/candidates/{candidateId}/discovery?page={page}&pageSize=10", null, token);
     public Task<DiscoveryRunDetails> DetailsAsync(Guid candidateId, Guid runId, CancellationToken token) =>
         client.SendAsync<DiscoveryRunDetails>(HttpMethod.Get, $"api/candidates/{candidateId}/discovery/{runId}", null, token);
+    public Task<int> ClearStoredJobsAsync(Guid candidateId, CancellationToken token) =>
+        client.SendAsync<int>(HttpMethod.Delete, $"api/candidates/{candidateId}/discovery/stored-jobs", null, token);
 }

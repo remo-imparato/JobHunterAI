@@ -41,6 +41,22 @@ public sealed class DiscoveryStore(JobHunterDbContext db) : IDiscoveryStore, IPu
     }
     public Task<bool> CompanyExistsAsync(Guid id, CancellationToken token) => db.Companies.AnyAsync(x => x.Id == id, token);
 
+    public async Task<int> ClearStoredJobsAsync(CancellationToken token)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(token);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM public.job_discovery_results", token);
+        await db.Database.ExecuteSqlRawAsync("DELETE FROM public.job_discovery_runs", token);
+        int deleted = await db.Database.ExecuteSqlRawAsync("""
+            DELETE FROM public.job_postings posting
+            WHERE NOT EXISTS (SELECT 1 FROM public.applications app WHERE app."JobPostingId" = posting."Id")
+              AND NOT EXISTS (SELECT 1 FROM public.cover_letters letter WHERE letter."JobPostingId" = posting."Id")
+              AND NOT EXISTS (SELECT 1 FROM public.resume_versions resume WHERE resume."JobPostingId" = posting."Id")
+              AND NOT EXISTS (SELECT 1 FROM public.application_packages package WHERE package."JobPostingId" = posting."Id")
+            """, token);
+        await transaction.CommitAsync(token);
+        return deleted;
+    }
+
     public async Task<JobPosting> UpsertJobAsync(JobPosting job, CancellationToken token)
     {
         if (job.Title.Length > 300 || job.ExternalId.Length > 300 || job.ProviderName.Length > 100 ||

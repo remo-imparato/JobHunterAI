@@ -161,6 +161,7 @@ public sealed class DiscoveryTests
         Assert.False(new StartDiscoveryValidator().Validate(new StartDiscoveryCommand(Guid.Empty, Guid.Empty)).IsValid);
         Assert.False(new GetDiscoveryValidator().Validate(new GetDiscoveryQuery(Guid.Empty, Guid.Empty)).IsValid);
         Assert.False(new ListDiscoveryValidator().Validate(new ListDiscoveryQuery(Guid.NewGuid(), -1, 101)).IsValid);
+        Assert.False(new ClearStoredJobsValidator().Validate(new ClearStoredJobsCommand(Guid.Empty)).IsValid);
         Assert.True(new DiscoveryOptions().IsValid());
         Assert.False(new DiscoveryOptions { StoredJobsLimit = 0 }.IsValid());
         Assert.False(new DiscoveryOptions { JobsPerBoard = 501 }.IsValid());
@@ -267,7 +268,8 @@ public sealed class DiscoveryTests
         public Action? Action { get; set; }
         public bool Delay { get; set; }
         public int Calls { get; private set; }
-        public async Task<IReadOnlyList<JobPosting>> SearchJobsAsync(string board, Guid companyId, CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<JobPosting>> SearchJobsAsync(string board, Guid companyId,
+            JobProviderSearchCriteria? criteria = null, CancellationToken cancellationToken = default)
         {
             Calls++;
             Action?.Invoke();
@@ -290,6 +292,13 @@ public sealed class DiscoveryTests
         public Task SaveAsync(JobDiscoveryRun run, CancellationToken token) { SavedWithUsableToken = !token.IsCancellationRequested; return Task.CompletedTask; }
         public Task<IReadOnlyList<JobPosting>> StoredJobsAsync(int limit, CancellationToken token) => FailRead ? throw new InvalidOperationException("storage failed") : Task.FromResult<IReadOnlyList<JobPosting>>(Jobs.Take(limit).ToArray());
         public Task<bool> CompanyExistsAsync(Guid id, CancellationToken token) => Task.FromResult(true);
+        public Task<int> ClearStoredJobsAsync(CancellationToken token)
+        {
+            int count = Jobs.Count;
+            Jobs.Clear();
+            Runs.Clear();
+            return Task.FromResult(count);
+        }
         public Task<JobPosting> UpsertJobAsync(JobPosting job, CancellationToken token)
         {
             Upserts++;

@@ -143,6 +143,35 @@ public sealed class ProviderTests
         Assert.Null(job.Location.City);
     }
 
+    [Fact]
+    public async Task Providers_UseCriteriaHintsForRequestExpansion()
+    {
+        List<string> greenhouseQueries = [];
+        using HttpClient greenhouseClient = Client(request =>
+        {
+            greenhouseQueries.Add(request.RequestUri!.Query);
+            return "{\"jobs\":[]}";
+        });
+
+        JobProviderSearchCriteria criteria = new(["Engineer"], ["Boston"]);
+        await new GreenhouseProvider(greenhouseClient).SearchJobsAsync("acme", CompanyId, criteria);
+
+        Assert.Contains(greenhouseQueries, query => query.Contains("query=Engineer", StringComparison.Ordinal));
+        Assert.Contains(greenhouseQueries, query => query.Contains("location=Boston", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Providers_DeduplicateResultsAcrossCriteriaRequests()
+    {
+        const string payload = "[{\"id\":\"abc\",\"text\":\"Engineer\",\"descriptionPlain\":\"Build\",\"hostedUrl\":\"https://example.invalid/job\",\"categories\":{\"location\":\"Boston, USA\"}}]";
+        using HttpClient client = Client(_ => payload);
+
+        JobProviderSearchCriteria criteria = new(["Engineer"], ["Boston"]);
+        IReadOnlyList<JobPosting> jobs = await new LeverProvider(client).SearchJobsAsync("acme", CompanyId, criteria);
+
+        Assert.Single(jobs);
+    }
+
     private static HttpClient Client(Func<HttpRequestMessage, string> response) => new(
         new StubHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
         {

@@ -10,6 +10,7 @@
 <MudButton Href="/search-criteria" Class="mb-4">Edit search criteria</MudButton>
 <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="QueueAsync" Disabled="@(_busy || _loading)" Class="mb-4">Search and prepare packages in background</MudButton>
 <MudButton OnClick="StartAsync" Disabled="@(_busy || _loading)" Class="mb-4">Search only</MudButton>
+<MudButton Color="Color.Warning" Variant="Variant.Outlined" OnClick="ClearStoredJobsAsync" Disabled="@(_busy || _loading)" Class="mb-4">Clear stored jobs and runs</MudButton>
 @if (_busy)
 {
     <MudButton Color="Color.Warning" OnClick="Cancel" Class="mb-4">Cancel search</MudButton>
@@ -122,6 +123,25 @@
         _error = null;
         _details = null;
         try { _details = await Client.DetailsAsync(Preferences.CandidateId, runId, _lifetime.Token); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (IsRequestFailure(exception)) { ShowError(exception); }
+        finally { _loading = false; }
+    }
+    private async Task ClearStoredJobsAsync()
+    {
+        if (_busy || _loading) return;
+        _loading = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            int deleted = await Client.ClearStoredJobsAsync(Preferences.CandidateId, _lifetime.Token);
+            _details = null;
+            _lastRunId = null;
+            _history = await Client.ListAsync(Preferences.CandidateId, 0, _lifetime.Token);
+            _page = 0;
+            _message = $"Cleared discovery cache and deleted {deleted} unreferenced stored jobs. Start a new search to repopulate from APIs.";
+        }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (IsRequestFailure(exception)) { ShowError(exception); }
         finally { _loading = false; }

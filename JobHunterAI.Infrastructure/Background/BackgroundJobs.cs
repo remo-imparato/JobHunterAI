@@ -31,7 +31,7 @@ public sealed class BackgroundJobs(
             }
 
             if (provider is null) throw new InvalidOperationException("Configured discovery provider is unavailable.");
-            IReadOnlyList<JobPosting> jobs = await provider.SearchJobsAsync(board.Board, board.CompanyId, token);
+            IReadOnlyList<JobPosting> jobs = await provider.SearchJobsAsync(board.Board, board.CompanyId, cancellationToken: token);
             int saved = 0;
             foreach (JobPosting job in jobs)
             {

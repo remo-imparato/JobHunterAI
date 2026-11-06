@@ -47,6 +47,18 @@ public sealed class DiscoveryApiTests
     }
 
     [Fact]
+    public async Task Discovery_ClearStoredJobs_ReturnsDeletedCount()
+    {
+        using Factory factory = new();
+        using HttpClient client = factory.CreateClient();
+
+        using var response = await client.DeleteAsync($"/api/candidates/{factory.Candidate.Id}/discovery/stored-jobs");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, (await response.Content.ReadFromJsonAsync<int>())!);
+    }
+
+    [Fact]
     public async Task Discovery_RejectsMissingCandidateCriteriaAndInvalidInputs()
     {
         using Factory factory = new();
@@ -108,6 +120,7 @@ public sealed class DiscoveryApiTests
         public Task CreateAsync(JobDiscoveryRun run, CancellationToken token) { Runs.Add(run); return Task.CompletedTask; }
         public Task SaveAsync(JobDiscoveryRun run, CancellationToken token) => Task.CompletedTask;
         public Task<bool> CompanyExistsAsync(Guid id, CancellationToken token) => Task.FromResult(true);
+        public Task<int> ClearStoredJobsAsync(CancellationToken token) => Task.FromResult(1);
         public Task<IReadOnlyList<JobPosting>> StoredJobsAsync(int limit, CancellationToken token) => Task.FromResult<IReadOnlyList<JobPosting>>([_job]);
         public Task<JobPosting> UpsertJobAsync(JobPosting job, CancellationToken token) => Task.FromResult(job);
         public Task<IReadOnlyList<DiscoveryRunSummary>> ListAsync(Guid candidateId, int page, int pageSize, CancellationToken token) => Task.FromResult<IReadOnlyList<DiscoveryRunSummary>>(Runs.Where(x => x.CandidateProfileId == candidateId).Skip(page * pageSize).Take(pageSize).Select(Summary).ToArray());

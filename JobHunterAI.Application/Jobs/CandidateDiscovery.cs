@@ -37,9 +37,11 @@ public interface IDiscoveryStore
     Task<JobPosting> UpsertJobAsync(JobPosting job, CancellationToken token);
     Task<IReadOnlyList<DiscoveryRunSummary>> ListAsync(Guid candidateId, int page, int pageSize, CancellationToken token);
     Task<DiscoveryRunDetails?> DetailsAsync(Guid candidateId, Guid runId, CancellationToken token);
+    Task<int> ClearStoredJobsAsync(CancellationToken token);
 }
 public sealed record StartDiscoveryCommand(Guid CandidateId, Guid RunId) : IRequest<Result<DiscoveryRunDetails>>;
 public sealed record QueuedDiscovery(Guid RunId, string WorkerJobId);
+public sealed record ClearStoredJobsCommand(Guid CandidateId) : IRequest<Result<int>>;
 public sealed record ListDiscoveryQuery(Guid CandidateId, int Page = 0, int PageSize = 10) : IRequest<Result<IReadOnlyList<DiscoveryRunSummary>>>;
 public sealed record GetDiscoveryQuery(Guid CandidateId, Guid RunId) : IRequest<Result<DiscoveryRunDetails>>;
 public sealed class StartDiscoveryValidator : AbstractValidator<StartDiscoveryCommand>
@@ -53,6 +55,10 @@ public sealed class ListDiscoveryValidator : AbstractValidator<ListDiscoveryQuer
 public sealed class GetDiscoveryValidator : AbstractValidator<GetDiscoveryQuery>
 {
     public GetDiscoveryValidator() { RuleFor(x => x.CandidateId).NotEmpty(); RuleFor(x => x.RunId).NotEmpty(); }
+}
+public sealed class ClearStoredJobsValidator : AbstractValidator<ClearStoredJobsCommand>
+{
+    public ClearStoredJobsValidator() => RuleFor(x => x.CandidateId).NotEmpty();
 }
 public sealed class ListDiscoveryHandler(IRepository<CandidateProfile> candidates, IDiscoveryStore store)
     : IRequestHandler<ListDiscoveryQuery, Result<IReadOnlyList<DiscoveryRunSummary>>>
@@ -69,6 +75,14 @@ public sealed class GetDiscoveryHandler(IDiscoveryStore store) : IRequestHandler
         var details = await store.DetailsAsync(request.CandidateId, request.RunId, token);
         return details is null ? Result<DiscoveryRunDetails>.NotFound("Candidate search run not found.") : Result<DiscoveryRunDetails>.Success(details);
     }
+}
+public sealed class ClearStoredJobsHandler(IRepository<CandidateProfile> candidates, IDiscoveryStore store)
+    : IRequestHandler<ClearStoredJobsCommand, Result<int>>
+{
+    public async Task<Result<int>> Handle(ClearStoredJobsCommand request, CancellationToken token) =>
+        await candidates.GetByIdAsync(request.CandidateId, token) is null
+            ? Result<int>.NotFound("Candidate not found.")
+            : Result<int>.Success(await store.ClearStoredJobsAsync(token));
 }
 
 public sealed class StartDiscoveryHandler(IRepository<CandidateProfile> candidates, IRepository<CandidateSearchCriteria> criteria,
@@ -121,7 +135,7 @@ public sealed class StartDiscoveryHandler(IRepository<CandidateProfile> candidat
                     IReadOnlyList<JobPosting> jobs;
                     try
                     {
-                        jobs = await provider.SearchJobsAsync(board.Board, board.CompanyId, sourceTimeout.Token);
+                        jobs = await provider.SearchJobsAsync(board.Board, board.CompanyId, providerCriteria, sourceTimeout.Token);
                     }
                     catch (Exception exception) when (exception is KeyNotFoundException or InvalidOperationException or FormatException)
                     {
@@ -131,10 +145,17 @@ public sealed class StartDiscoveryHandler(IRepository<CandidateProfile> candidat
                     foreach (JobPosting posting in jobs.Take(limits.JobsPerBoard))
                     {
                         ct.ThrowIfCancellationRequested();
-                        if (posting.ProviderName != board.Provider || posting.CompanyId != board.CompanyId)
-                            throw new ArgumentException("Provider returned a posting for another source.");
-                        JobPosting canonical = await store.UpsertJobAsync(posting, ct);
-                        Match(canonical);
+                        try
+                        {
+                            if (posting.ProviderName != board.Provider || posting.CompanyId != board.CompanyId)
+                                throw new ArgumentException("Provider returned a posting for another source.");
+                            JobPosting canonical = await store.UpsertJobAsync(posting, ct);
+                            Match(canonical);
+                        }
+                        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or FormatException)
+                        {
+                            run.Warn($"{board.Provider}: skipped one posting with invalid data; processing continued.");
+                        }
                     }
                     if (jobs.Count > limits.JobsPerBoard) run.Warn($"{board.Provider}: per-board examination limit reached.");
                 }
@@ -155,8 +176,15 @@ public sealed class StartDiscoveryHandler(IRepository<CandidateProfile> candidat
                     foreach (PublicJobListing listing in result.Jobs.Take(limits.JobsPerBoard))
                     {
                         ct.ThrowIfCancellationRequested();
-                        if (listing.Job.ProviderName != feed.Name) throw new ArgumentException("Feed returned another provider's job.");
-                        Match(await publicJobs.UpsertAsync(listing, ct));
+                        try
+                        {
+                            if (listing.Job.ProviderName != feed.Name) throw new ArgumentException("Feed returned another provider's job.");
+                            Match(await publicJobs.UpsertAsync(listing, ct));
+                        }
+                        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or FormatException)
+                        {
+                            run.Warn($"{feed.Name}: skipped one posting with invalid data; processing continued.");
+                        }
                     }
                 }
                 catch (Exception exception) when (exception is HttpRequestException or JsonException or ArgumentException)
@@ -192,15 +220,32 @@ public sealed class StartDiscoveryHandler(IRepository<CandidateProfile> candidat
 
         void Match(JobPosting job)
         {
-            if (seen.Add(job.Id)) run.Examine();
+            if (seen.Add(job.Id))
+                run.Examine();
             JobFilterMismatch reasons = saved.MismatchReasons(job.Title, job.Location.City, job.Location.Country, job.Location.Arrangement, job.Description);
             assessments[job.Id] = reasons;
             if (reasons == JobFilterMismatch.None)
             {
+                logger?.LogInformation("Discovery matched job {JobId} ({Provider}:{ExternalId}) '{Title}'", job.Id, job.ProviderName, job.ExternalId, job.Title);
                 if (run.Results.Count < limits.MaxMatches) run.AddMatch(job.Id);
             }
-            else run.RemoveMatch(job.Id);
+            else
+            {
+                run.RemoveMatch(job.Id);
+                logger?.LogInformation("Discovery rejected job {JobId} ({Provider}:{ExternalId}) '{Title}' due to {Reasons}",
+                    job.Id, job.ProviderName, job.ExternalId, job.Title, FormatReasons(reasons));
+            }
         }
         int Rejected(JobFilterMismatch reason) => assessments.Values.Count(value => (value & reason) != 0);
+        static string FormatReasons(JobFilterMismatch reasons)
+        {
+            List<string> values = [];
+            if ((reasons & JobFilterMismatch.Title) != 0) values.Add("title");
+            if ((reasons & JobFilterMismatch.Location) != 0) values.Add("location");
+            if ((reasons & JobFilterMismatch.WorkArrangement) != 0) values.Add("work arrangement");
+            if ((reasons & JobFilterMismatch.RequiredKeywords) != 0) values.Add("required keywords");
+            if ((reasons & JobFilterMismatch.ExcludedKeywords) != 0) values.Add("excluded keywords");
+            return values.Count == 0 ? "unknown" : string.Join(", ", values);
+        }
     }
 }

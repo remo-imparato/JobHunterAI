@@ -25,7 +25,7 @@ public sealed class ExternalServiceBoundaryTests
         await Assert.ThrowsAsync<ArgumentException>(() => provider.SearchJobsAsync("acme", Guid.Empty));
         using CancellationTokenSource cancellation = new();
         cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.SearchJobsAsync("acme", Guid.NewGuid(), cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.SearchJobsAsync("acme", Guid.NewGuid(), cancellationToken: cancellation.Token));
     }
 
     [Theory]
