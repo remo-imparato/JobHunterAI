@@ -1,0 +1,64 @@
+# Local/manual-review deployment. Do not expose publicly without authentication/TLS.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jobhunterai
+      POSTGRES_USER: jobhunterai
+      # Fixed credentials for local development only; no .env file is required.
+      POSTGRES_PASSWORD: jobhunterai
+    volumes:
+      - jobhunter-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobhunterai -d jobhunterai"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    build:
+      context: .
+      dockerfile: JobHunterAI.Api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__JobHunterAI: "Host=db;Port=5432;Database=jobhunterai;Username=jobhunterai;Password=jobhunterai;GSS Encryption Mode=Disable"
+      Database__MigrateOnStartup: "true"
+      Database__SeedDevelopmentData: "false"
+      Background__Enabled: "true"
+      Background__EnableSearchPipeline: "true"
+      Background__EnableAiJobs: "true"
+      Background__LogDirectory: /app/logs
+      Discovery__JobsPerBoard: ${DISCOVERY_JOBS_PER_SOURCE:-300}
+      PublicFeeds__MaxPages: ${ARBEITNOW_MAX_PAGES:-3}
+      AI__Endpoint: ${AI_ENDPOINT:-}
+      AI__ApiKey: ${AI_API_KEY:-}
+      AI__DeploymentName: ${AI_DEPLOYMENT_NAME:-}
+      # Optional recurring target; alternatively use the UI background-search button.
+      # Background__Candidates__0__CandidateId: <your-candidate-guid>
+      # Background__Candidates__0__ResumeId: <your-uploaded-source-resume-guid>
+    volumes:
+      - jobhunter-logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  web:
+    build:
+      context: .
+      dockerfile: JobHunterAI.Web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      Api__BaseUrl: http://api:8080/
+    ports:
+      - "127.0.0.1:8080:8080"
+volumes:
+  jobhunter-data:
+  jobhunter-logs:

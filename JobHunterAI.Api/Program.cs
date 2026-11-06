@@ -12,14 +12,28 @@ using Serilog;
 using JobHunterAI.Observability;
 using JobHunterAI.Api.Observability;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((context, services, configuration) => configuration
-    .ReadFrom.Configuration(context.Configuration)
-    .ReadFrom.Services(services)
-    .Enrich.FromLogContext()
-    .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter()));
+builder.Host.UseSerilog((context, services, configuration) =>
+{
+    configuration.ReadFrom.Configuration(context.Configuration)
+        .ReadFrom.Services(services)
+        .Enrich.FromLogContext()
+        .WriteTo.Console(new Serilog.Formatting.Json.JsonFormatter());
+    string? directory = context.Configuration["Background:LogDirectory"];
+    if (!string.IsNullOrWhiteSpace(directory))
+    {
+        if (!Path.IsPathFullyQualified(directory) || Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar) ==
+            Path.GetPathRoot(directory)?.TrimEnd(Path.DirectorySeparatorChar))
+            throw new InvalidOperationException("Background:LogDirectory must be an absolute, non-root log directory.");
+        Directory.CreateDirectory(directory);
+        configuration.WriteTo.File(new Serilog.Formatting.Json.JsonFormatter(), Path.Combine(directory, "jobhunterai-.log"),
+            rollingInterval: RollingInterval.Day, fileSizeLimitBytes: 10 * 1024 * 1024, rollOnFileSizeLimit: true,
+            retainedFileCountLimit: 30, shared: true);
+    }
+});
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -39,12 +53,29 @@ builder.Services.AddAutoMapper(config =>
 }, typeof(ApplicationMappingProfile));
 builder.Services.AddJobHunterAi(builder.Configuration);
 builder.Services.AddJobHunterAutomation(builder.Configuration);
-builder.Services.AddHttpClient<IJobProvider, GreenhouseProvider>(client =>
-    client.BaseAddress = new Uri("https://job-boards.greenhouse.io/v1"));
-builder.Services.AddHttpClient<IJobProvider, LeverProvider>(client =>
+builder.Services.AddHttpClient<GreenhouseProvider>(client =>
+    client.BaseAddress = new Uri("https://boards-api.greenhouse.io/v1/"));
+builder.Services.AddHttpClient<LeverProvider>(client =>
     client.BaseAddress = new Uri("https://api.lever.co/"));
-builder.Services.AddHttpClient<IJobProvider, AshbyProvider>(client =>
+builder.Services.AddHttpClient<AshbyProvider>(client =>
     client.BaseAddress = new Uri("https://api.ashbyhq.com/posting-api/"));
+builder.Services.AddTransient<IJobProvider>(services => services.GetRequiredService<GreenhouseProvider>());
+builder.Services.AddTransient<IJobProvider>(services => services.GetRequiredService<LeverProvider>());
+builder.Services.AddTransient<IJobProvider>(services => services.GetRequiredService<AshbyProvider>());
+builder.Services.AddOptions<PublicFeedOptions>().Bind(builder.Configuration.GetSection(PublicFeedOptions.SectionName))
+    .Validate(options => options.IsValid(), "Invalid public feed limits.").ValidateOnStart();
+builder.Services.AddHttpClient<ArbeitnowFeed>(client =>
+{
+    client.BaseAddress = new Uri("https://www.arbeitnow.com/api/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddHttpClient<RemoteOkFeed>(client =>
+{
+    client.BaseAddress = new Uri("https://remoteok.com/");
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+builder.Services.AddTransient<IPublicJobFeed>(services => services.GetRequiredService<ArbeitnowFeed>());
+builder.Services.AddTransient<IPublicJobFeed>(services => services.GetRequiredService<RemoteOkFeed>());
 builder.Services.AddOptions<JobHunterOptions>()
     .Bind(builder.Configuration.GetSection(JobHunterOptions.SectionName))
     .Validate(options => !string.IsNullOrWhiteSpace(options.DisplayName), "JobHunterAI:DisplayName is required.")
@@ -56,6 +87,12 @@ builder.Services.AddOptions<DiscoveryOptions>().Bind(builder.Configuration.GetSe
     .Validate(options => options.IsValid(), "Invalid discovery limits.").ValidateOnStart();
 
 WebApplication app = builder.Build();
+
+if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+{
+    await using AsyncServiceScope scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<JobHunterDbContext>().Database.MigrateAsync(app.Lifetime.ApplicationStopping);
+}
 
 if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("Database:SeedDevelopmentData"))
 {

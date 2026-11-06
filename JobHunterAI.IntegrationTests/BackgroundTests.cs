@@ -2,6 +2,8 @@ using System.Reflection;
 using Hangfire;
 using JobHunterAI.Api;
 using JobHunterAI.Infrastructure.Background;
+using JobHunterAI.Application.Jobs;
+using JobHunterAI.Infrastructure.JobProviders;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,6 +12,22 @@ namespace JobHunterAI.IntegrationTests;
 
 public sealed class BackgroundTests
 {
+    [Fact]
+    public void Providers_HaveIndependentHttpClientAddresses()
+    {
+        using var factory = new Factory();
+        using var scope = factory.Services.CreateScope();
+        IHttpClientFactory clients = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
+        Assert.Equal(3, scope.ServiceProvider.GetServices<IJobProvider>().Count());
+        Assert.Equal(2, scope.ServiceProvider.GetServices<IPublicJobFeed>().Count());
+        Assert.Equal("https://boards-api.greenhouse.io/v1/", clients.CreateClient(nameof(GreenhouseProvider)).BaseAddress!.AbsoluteUri);
+        Assert.Equal("/v1/boards/example/jobs", new Uri(clients.CreateClient(nameof(GreenhouseProvider)).BaseAddress!, "boards/example/jobs").AbsolutePath);
+        Assert.Equal("https://api.lever.co/", clients.CreateClient(nameof(LeverProvider)).BaseAddress!.AbsoluteUri);
+        Assert.Equal("https://api.ashbyhq.com/posting-api/", clients.CreateClient(nameof(AshbyProvider)).BaseAddress!.AbsoluteUri);
+        Assert.Equal("https://www.arbeitnow.com/api/", clients.CreateClient(nameof(ArbeitnowFeed)).BaseAddress!.AbsoluteUri);
+        Assert.Equal("https://remoteok.com/", clients.CreateClient(nameof(RemoteOkFeed)).BaseAddress!.AbsoluteUri);
+    }
+
     [Fact]
     public void Options_DefaultToSafeDisabledConfiguration()
     {
@@ -50,9 +68,20 @@ public sealed class BackgroundTests
             Assert.StartsWith("jobhunter-", (string)args[0]!);
             Assert.Equal(TimeZoneInfo.Utc, ((RecurringJobOptions)args[3]!).TimeZone);
         });
-        Assert.Equal(ai ? 0 : 2, proxy.Removed.Count);
+        Assert.Equal(ai ? 1 : 3, proxy.Removed.Count);
         BackgroundRegistration.RegisterSchedules(manager, ai);
         Assert.Equal(count, proxy.Added.Take(count).Select(a => a[0]).Distinct().Count());
+    }
+
+    [Fact]
+    public void SearchPipeline_IsScheduledAndDoesNotDuplicateLegacyAiGeneration()
+    {
+        var manager = DispatchProxy.Create<IRecurringJobManager, ManagerProxy>();
+        var proxy = (ManagerProxy)manager;
+        BackgroundRegistration.RegisterSchedules(manager, true, true);
+        Assert.Contains(proxy.Added, args => Equals(args[0], "jobhunter-search-packages"));
+        Assert.DoesNotContain(proxy.Added, args => Equals(args[0], "jobhunter-generate-resume-variants") || Equals(args[0], "jobhunter-refresh-match-scores"));
+        Assert.All(proxy.Added, args => Assert.Equal(TimeZoneInfo.Utc, ((RecurringJobOptions)args[3]!).TimeZone));
     }
 
     [Fact]

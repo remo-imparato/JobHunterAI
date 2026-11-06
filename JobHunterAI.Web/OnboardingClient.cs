@@ -25,7 +25,11 @@ public sealed class OnboardingClient(IHttpClientFactory factory)
     public async Task<ResumePreview> UploadAsync(Guid candidateId, Stream stream, string fileName, CancellationToken token)
     {
         using MultipartFormDataContent form = new();
-        form.Add(new StreamContent(stream), "file", fileName.Replace('\\', '/').Split('/')[^1]);
+        using StreamContent file = new(stream);
+        // Browser streams cannot rewind. Buffer within the upload limit so redirects
+        // or transport retries can serialize the file again without re-reading it.
+        await file.LoadIntoBufferAsync(ResumeUploadLimits.MaxFileBytes, token);
+        form.Add(file, "file", fileName.Replace('\\', '/').Split('/')[^1]);
         return await SendAsync<ResumePreview>(HttpMethod.Post, $"api/candidates/{candidateId}/resumes", form, token);
     }
 

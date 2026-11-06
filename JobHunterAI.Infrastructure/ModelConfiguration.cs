@@ -63,6 +63,7 @@ internal static class ModelConfiguration
         {
             entity.ToTable("skills");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => new { x.CandidateProfileId, x.Name }).IsUnique();
         });
@@ -70,6 +71,7 @@ internal static class ModelConfiguration
         {
             entity.ToTable("work_experiences");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.Employer).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Title).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Description).IsRequired();
@@ -79,6 +81,7 @@ internal static class ModelConfiguration
         {
             entity.ToTable("education_records");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.Institution).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Qualification).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => x.CandidateProfileId);
@@ -87,6 +90,7 @@ internal static class ModelConfiguration
         {
             entity.ToTable("certifications");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedNever();
             entity.Property(x => x.Name).HasMaxLength(200).IsRequired();
             entity.Property(x => x.Issuer).HasMaxLength(200).IsRequired();
             entity.HasIndex(x => x.CandidateProfileId);

@@ -18,6 +18,7 @@ public sealed class BackgroundOptions
     public const string SectionName = "Background";
     public bool Enabled { get; set; }
     public bool EnableAiJobs { get; set; }
+    public bool EnableSearchPipeline { get; set; }
     public int BatchSize { get; set; } = 10;
     public int ScoreRefreshHours { get; set; } = 24;
     public int LogRetentionDays { get; set; } = 30;

@@ -105,6 +105,7 @@ public sealed class DiscoveryTests
         var result = (await f.Start()).Value!;
         Assert.Empty(result.Jobs);
         Assert.Contains(result.Run.Warnings, x => x.Contains("No provider boards"));
+        Assert.Contains(result.Run.Warnings, x => x.Contains("title=0") && x.Contains("work arrangement=1"));
         Assert.Null(await f.Store.DetailsAsync(Guid.NewGuid(), result.Run.Id, default));
         Assert.Empty(await f.Store.ListAsync(Guid.NewGuid(), 0, 10, default));
         f.Criteria.Items[0].Update(["Engineer"], [], WorkArrangement.Remote, true, [], []);
@@ -167,6 +168,75 @@ public sealed class DiscoveryTests
         Assert.False(new DiscoveryOptions { TimeoutSeconds = 121 }.IsValid());
     }
 
+    [Fact]
+    public async Task Discovery_AttemptsEveryBoardAndPublicFeedEvenAfterMatchCap()
+    {
+        Fixture f = new();
+        f.Limits.MaxMatches = 1;
+        f.Store.Jobs.Add(f.Job());
+        f.Sources.Boards = [new("Lever", "acme", f.Company), new("Lever", "acme", f.Company)];
+        f.Provider.Jobs = [f.Job()];
+        Feed first = new("Arbeitnow", f.Company);
+        Feed second = new("RemoteOK", f.Company);
+        f.Feeds.AddRange([first, second]);
+
+        var result = (await f.Start()).Value!;
+
+        Assert.Single(result.Jobs);
+        Assert.Equal(2, f.Provider.Calls);
+        Assert.Equal(1, first.Calls);
+        Assert.Equal(1, second.Calls);
+        Assert.Contains(result.Run.Warnings, x => x.Contains("Match limit"));
+    }
+
+    [Fact]
+    public async Task Discovery_PublicFeedFailureDoesNotPreventOtherFeeds()
+    {
+        Fixture f = new();
+        f.Sources.Boards = [];
+        Feed first = new("Arbeitnow", f.Company) { Failure = new HttpRequestException("private error") };
+        Feed second = new("RemoteOK", f.Company);
+        f.Feeds.AddRange([first, second]);
+
+        var result = (await f.Start()).Value!;
+
+        Assert.Single(result.Jobs);
+        Assert.Equal(1, second.Calls);
+        Assert.DoesNotContain(result.Run.Warnings, x => x.Contains("No provider boards") || x.Contains("private error"));
+        Assert.Contains(result.Run.Warnings, x => x.Contains("Arbeitnow"));
+    }
+
+    [Fact]
+    public async Task Discovery_MalformedAtsResponseDoesNotPreventPublicFeeds()
+    {
+        Fixture f = new();
+        f.Provider.Failure = new InvalidOperationException("Unexpected JSON shape");
+        Feed feed = new("Arbeitnow", f.Company);
+        f.Feeds.Add(feed);
+
+        var result = (await f.Start()).Value!;
+
+        Assert.Single(result.Jobs);
+        Assert.Equal(1, feed.Calls);
+        Assert.Contains(result.Run.Warnings, x => x.Contains("Lever"));
+    }
+
+    private sealed class Feed(string name, Guid company) : IPublicJobFeed
+    {
+        public string Name => name;
+        public bool Enabled => true;
+        public int Calls { get; private set; }
+        public Exception? Failure { get; init; }
+        public Task<PublicJobFeedResult> SearchAsync(int limit, CancellationToken token)
+        {
+            Calls++;
+            if (Failure is not null) throw Failure;
+            JobPosting job = new(Guid.NewGuid(), company, Name, "public:1", "Engineer", "Build software",
+                new(null, null, WorkArrangement.Remote), "https://example.invalid/job");
+            return Task.FromResult(new PublicJobFeedResult([new("Employer", job)], []));
+        }
+    }
+
     private sealed class Fixture
     {
         public Guid Company { get; } = Guid.NewGuid();
@@ -177,7 +247,8 @@ public sealed class DiscoveryTests
         public Sources Sources { get; } = new();
         public Provider Provider { get; } = new();
         public DiscoveryOptions Limits { get; } = new();
-        public StartDiscoveryHandler Handler => new(Candidates, Criteria, [Provider], Sources, Store, Options.Create(Limits));
+        public List<IPublicJobFeed> Feeds { get; } = [];
+        public StartDiscoveryHandler Handler => new(Candidates, Criteria, [Provider], Sources, Store, Options.Create(Limits), Feeds, Store);
         public Fixture()
         {
             Candidates = new(x => x.Id, Candidate);
@@ -195,8 +266,10 @@ public sealed class DiscoveryTests
         public Exception? Failure { get; set; }
         public Action? Action { get; set; }
         public bool Delay { get; set; }
+        public int Calls { get; private set; }
         public async Task<IReadOnlyList<JobPosting>> SearchJobsAsync(string board, Guid companyId, CancellationToken cancellationToken = default)
         {
+            Calls++;
             Action?.Invoke();
             cancellationToken.ThrowIfCancellationRequested();
             if (Delay) await Task.Delay(Timeout.Infinite, cancellationToken);
@@ -205,13 +278,14 @@ public sealed class DiscoveryTests
         }
         public Task<JobPosting?> GetJobDetailsAsync(string board, string jobId, Guid companyId, CancellationToken cancellationToken = default) => Task.FromResult<JobPosting?>(null);
     }
-    private sealed class MemoryStore : IDiscoveryStore
+    private sealed class MemoryStore : IDiscoveryStore, IPublicJobStore
     {
         public List<JobDiscoveryRun> Runs { get; } = [];
         public List<JobPosting> Jobs { get; } = [];
         public bool FailRead { get; set; }
         public bool SavedWithUsableToken { get; private set; }
         public int Upserts { get; private set; }
+        public Task<JobPosting> UpsertAsync(PublicJobListing listing, CancellationToken token) => UpsertJobAsync(listing.Job, token);
         public Task CreateAsync(JobDiscoveryRun run, CancellationToken token) { Runs.Add(run); return Task.CompletedTask; }
         public Task SaveAsync(JobDiscoveryRun run, CancellationToken token) { SavedWithUsableToken = !token.IsCancellationRequested; return Task.CompletedTask; }
         public Task<IReadOnlyList<JobPosting>> StoredJobsAsync(int limit, CancellationToken token) => FailRead ? throw new InvalidOperationException("storage failed") : Task.FromResult<IReadOnlyList<JobPosting>>(Jobs.Take(limit).ToArray());

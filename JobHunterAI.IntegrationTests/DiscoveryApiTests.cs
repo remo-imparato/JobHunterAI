@@ -37,6 +37,16 @@ public sealed class DiscoveryApiTests
     }
 
     [Fact]
+    public async Task BackgroundDiscovery_ReportsDisabledWorkerWithoutAccessingDatabase()
+    {
+        using Factory factory = new();
+        using HttpClient client = factory.CreateClient();
+        using var response = await client.PostAsJsonAsync($"/api/candidates/{factory.Candidate.Id}/discovery/background", new { runId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(factory.Store.Runs);
+    }
+
+    [Fact]
     public async Task Discovery_RejectsMissingCandidateCriteriaAndInvalidInputs()
     {
         using Factory factory = new();
@@ -63,6 +73,8 @@ public sealed class DiscoveryApiTests
         {
             builder.UseSetting("ConnectionStrings:JobHunterAI", "Host=localhost;Database=tests;Username=tests");
             builder.UseSetting("Background:Enabled", "false");
+            builder.UseSetting("PublicFeeds:Arbeitnow", "false");
+            builder.UseSetting("PublicFeeds:RemoteOK", "false");
             builder.UseSetting("Database:SeedDevelopmentData", "false");
             Criteria.Item = new CandidateSearchCriteria(Candidate.Id, ["Engineer"], [], WorkArrangement.Remote, false, [], []);
             builder.ConfigureServices(services =>

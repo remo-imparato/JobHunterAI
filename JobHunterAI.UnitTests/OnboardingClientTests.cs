@@ -74,6 +74,103 @@ public sealed class OnboardingClientTests
         Assert.DoesNotContain("private backend details", error.Message);
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(ResumeUploadLimits.MaxFileBytes)]
+    public async Task UploadAsync_NonSeekableStream_CanSerializeMultipartTwice(int size)
+    {
+        byte[] bytes = new byte[size];
+        bytes[0] = 42;
+        using NonSeekableStream stream = new(bytes);
+        ReplayFactory factory = new();
+
+        await new OnboardingClient(factory).UploadAsync(Guid.NewGuid(), stream, "../resume.pdf", default);
+
+        Assert.Equal(1, factory.SendCount);
+        Assert.Equal(factory.FirstBody, factory.SecondBody);
+        Assert.True(factory.FirstBody!.AsSpan().IndexOf(bytes) >= 0);
+        Assert.True(stream.Disposed);
+    }
+
+    [Fact]
+    public async Task UploadAsync_OverLimitNonSeekableStream_IsRejectedBeforeSending()
+    {
+        using NonSeekableStream stream = new(new byte[ResumeUploadLimits.MaxFileBytes + 1]);
+        ReplayFactory factory = new();
+
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            new OnboardingClient(factory).UploadAsync(Guid.NewGuid(), stream, "resume.pdf", default));
+
+        Assert.Equal(0, factory.SendCount);
+        Assert.True(stream.Disposed);
+    }
+
+    [Fact]
+    public async Task UploadAsync_CanceledBuffering_DoesNotSendRequest()
+    {
+        using NonSeekableStream stream = new([1, 2, 3]);
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+        ReplayFactory factory = new();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new OnboardingClient(factory).UploadAsync(Guid.NewGuid(), stream, "resume.pdf", cancellation.Token));
+
+        Assert.Equal(0, factory.SendCount);
+        Assert.True(stream.Disposed);
+    }
+
+    // Unlike ReadAsStringAsync, CopyToAsync does not implicitly buffer HttpContent.
+    // Serializing twice exercises the replay required by a 307/308 redirect.
+    private sealed class ReplayFactory : IHttpClientFactory
+    {
+        public int SendCount { get; private set; }
+        public byte[]? FirstBody { get; private set; }
+        public byte[]? SecondBody { get; private set; }
+
+        public HttpClient CreateClient(string name) => new(new Handler(async (request, token) =>
+        {
+            SendCount++;
+            using MemoryStream first = new();
+            using MemoryStream second = new();
+            await request.Content!.CopyToAsync(first, token);
+            await request.Content.CopyToAsync(second, token);
+            FirstBody = first.ToArray();
+            SecondBody = second.ToArray();
+            ResumeSummary summary = new(Guid.NewGuid(), "resume.pdf", Guid.NewGuid(), "resume.pdf", DateTimeOffset.UtcNow);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new ResumePreview(summary, "Synthetic test text", new([], [], [], [])))
+            };
+        })) { BaseAddress = new Uri("https://example.invalid/") };
+    }
+
+    private sealed class NonSeekableStream(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+        public bool Disposed { get; private set; }
+        public override bool CanRead => !Disposed;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            _inner.ReadAsync(buffer, cancellationToken);
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            _inner.ReadAsync(buffer, offset, count, cancellationToken);
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            Disposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
     private sealed class Factory(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : IHttpClientFactory
     {
         public Uri? LastUri { get; private set; }

@@ -1,4 +1,5 @@
 using JobHunterAI.Application.Persistence;
+using JobHunterAI.Application.Resumes;
 using JobHunterAI.Domain;
 using JobHunterAI.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -79,6 +80,41 @@ public sealed class PersistenceModelTests
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => repository.ListAsync(-1, 10));
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => repository.ListAsync(0, 101));
         await Assert.ThrowsAsync<ArgumentException>(() => repository.GetByIdAsync(Guid.Empty));
+    }
+
+    [Fact]
+    public async Task ImportingResume_TracksNewProfileChildrenAsAddedAndPreservesExistingChildren()
+    {
+        using JobHunterDbContext context = new(new DbContextOptionsBuilder<JobHunterDbContext>()
+            .UseNpgsql(TestConnection).Options);
+        CandidateProfile profile = new(Guid.NewGuid(), "Sample Candidate", new EmailAddress("candidate@example.invalid"), "Leader");
+        Skill existing = profile.AddSkill(Guid.NewGuid(), "C#");
+        context.Attach(profile);
+        DateOnly start = new(2020, 1, 1);
+        ParsedResume parsed = new(
+            [new("C#"), new("CI/CD pipelines")],
+            [new("Example Employer", "Engineer", start, null, "Developed software")],
+            [new("Example University", "Computer Science", start, null)],
+            [new("Cloud Certification", "Example Issuer", start, null)]);
+
+        ResumeProfileImporter.Apply(profile, parsed);
+        ResumeProfileImporter.Apply(profile, parsed);
+        context.SavingChanges += (_, _) => throw new OperationCanceledException();
+
+        // Inspect the save pipeline without opening a database connection.
+        await Assert.ThrowsAsync<OperationCanceledException>(() => context.SaveChangesAsync());
+
+        Assert.Equal(EntityState.Unchanged, context.Entry(existing).State);
+        Assert.Equal(EntityState.Added, context.Entry(profile.Skills.Single(x => x.Name == "CI/CD pipelines")).State);
+        Assert.Equal(EntityState.Added, context.Entry(Assert.Single(profile.WorkExperiences)).State);
+        Assert.Equal(EntityState.Added, context.Entry(Assert.Single(profile.EducationRecords)).State);
+        Assert.Equal(EntityState.Added, context.Entry(Assert.Single(profile.Certifications)).State);
+        Assert.Equal(2, profile.Skills.Count);
+        Assert.Equal(EntityState.Modified, context.Entry(profile).State);
+        foreach (Type child in new[] { typeof(Skill), typeof(WorkExperience), typeof(EducationRecord), typeof(Certification) })
+        {
+            Assert.Equal(ValueGenerated.Never, context.Model.FindEntityType(child)!.FindProperty("Id")!.ValueGenerated);
+        }
     }
 
     [Fact]

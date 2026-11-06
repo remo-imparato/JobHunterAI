@@ -72,8 +72,10 @@
     protected override async Task OnParametersSetAsync()
     {
         if (_loadedJob == JobId) return;
+        InvalidateRequest();
         _loadedJob = JobId;
         _resumeId = Guid.Empty;
+        _sources = [];
         _package = null;
         _reviewed = false;
         await SourcesAsync(0);
@@ -83,13 +85,17 @@
         await ExecuteAsync(async token =>
         {
             var sources = await Onboarding.ListResumesAsync(Preferences.CandidateId, page, token);
-            _sourcePageCount = sources.Count;
-            _sources = sources.Where(x => x.SourceFileName is not null && x.SourceVersionId.HasValue).ToArray();
-            _page = page;
+            return () =>
+            {
+                _sourcePageCount = sources.Count;
+                _sources = sources.Where(x => x.SourceFileName is not null && x.SourceVersionId.HasValue).ToArray();
+                _page = page;
+            };
         });
     }
     private async Task SelectAsync(Guid id)
     {
+        InvalidateRequest();
         _resumeId = id;
         _package = null;
         _reviewed = false;
@@ -97,25 +103,37 @@
     }
     private Task RefreshAsync() => ExecuteAsync(async token =>
     {
-        try { _package = await Client.FindAsync(Preferences.CandidateId, JobId, _resumeId, token); }
-        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound) { _package = null; }
+        PackageView? package;
+        try { package = await Client.FindAsync(Preferences.CandidateId, JobId, _resumeId, token); }
+        catch (HttpRequestException exception) when (exception.StatusCode == System.Net.HttpStatusCode.NotFound) { package = null; }
+        return () => _package = package;
     });
     private Task GenerateAsync() => ExecuteAsync(async token =>
     {
         _reviewed = false;
-        _package = await Client.GenerateAsync(Preferences.CandidateId, JobId, _resumeId, token);
+        var package = await Client.GenerateAsync(Preferences.CandidateId, JobId, _resumeId, token);
+        return () => _package = package;
     });
-    private async Task ExecuteAsync(Func<CancellationToken, Task> action)
+    private async Task ExecuteAsync(Func<CancellationToken, Task<Action>> action)
     {
         if (_busy) return;
         _busy = true;
         _error = null;
-        _request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        try { await action(_request.Token); }
-        catch (OperationCanceledException) { if (!_lifetime.IsCancellationRequested) _error = "Request cancelled or timed out. Refresh status before retrying; the server may still be finishing."; }
-        catch (HttpRequestException exception) { _error = exception.StatusCode.HasValue ? exception.Message : "Unable to reach the API. Check connectivity and migrations."; }
-        catch (System.Text.Json.JsonException) { _error = "Unable to read package status. Refresh and try again."; }
-        finally { _request.Dispose(); _request = null; _busy = false; }
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _request = request;
+        bool Current() => ReferenceEquals(_request, request) && !_lifetime.IsCancellationRequested;
+        try
+        {
+            Action apply = await action(request.Token);
+            if (Current() && !request.IsCancellationRequested) apply();
+        }
+        catch (OperationCanceledException) { if (Current()) _error = "Request cancelled or timed out. Refresh status before retrying; the server may still be finishing."; }
+        catch (HttpRequestException exception) { if (Current()) _error = exception.StatusCode.HasValue ? exception.Message : "Unable to reach the API. Check connectivity and migrations."; }
+        catch (System.Text.Json.JsonException) { if (Current()) _error = "Unable to read package status. Refresh and try again."; }
+        finally
+        {
+            if (ReferenceEquals(_request, request)) { _request = null; _busy = false; }
+        }
     }
     public static string FailureMessage(string code) => code switch
     {
@@ -124,5 +142,6 @@
         _ => "Generation failed. Check AI configuration/connectivity and retry."
     };
     private void Cancel() => _request?.Cancel();
-    public void Dispose() { _request?.Cancel(); _lifetime.Cancel(); _lifetime.Dispose(); }
+    private void InvalidateRequest() { _request?.Cancel(); _request = null; _busy = false; }
+    public void Dispose() { InvalidateRequest(); _lifetime.Cancel(); _lifetime.Dispose(); }
 }

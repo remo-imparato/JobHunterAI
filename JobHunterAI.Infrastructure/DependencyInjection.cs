@@ -23,6 +23,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<JobHunterDbContext>());
         services.AddScoped<JobHunterAI.Application.Generation.IPackageStore, PackageStore>();
         services.AddScoped<JobHunterAI.Application.Jobs.IDiscoveryStore, DiscoveryStore>();
+        services.AddScoped<JobHunterAI.Application.Jobs.IPublicJobStore, DiscoveryStore>();
         services.AddScoped<JobHunterAI.Application.Jobs.IDiscoverySources, DiscoverySources>();
         services.AddScoped<JobHunterAI.Application.Candidates.ICandidateLookup, CandidateLookup>();
         services.AddScoped<JobHunterAI.Application.Dashboard.IDashboardReader, DashboardReader>();

@@ -9,6 +9,15 @@ using JobHunterAI.Application.Common;
 namespace JobHunterAI.Api;
 
 [AutomaticRetry(Attempts = 0)]
+public sealed class ScheduledCandidateSearch(CandidateSearchWorkflow workflow)
+{
+    [DisableConcurrentExecution(60)]
+    public Task RunAsync(Guid candidateId, Guid runId, CancellationToken token) => workflow.RunAsync(candidateId, runId, token);
+    [DisableConcurrentExecution(60)]
+    public Task RunScheduledAsync(CancellationToken token) => workflow.RunScheduledAsync(token);
+}
+
+[AutomaticRetry(Attempts = 0)]
 public sealed class ScheduledJobs(BackgroundJobs jobs, ILogger<ScheduledJobs> logger)
 {
     [DisableConcurrentExecution(60)]
@@ -51,6 +60,8 @@ public static class BackgroundRegistration
             .Validate(o => o.IsValid(), "Invalid Background targets, limits or log directory.").ValidateOnStart();
         services.AddScoped<BackgroundJobs>();
         services.AddScoped<ScheduledJobs>();
+        services.AddScoped<CandidateSearchWorkflow>();
+        services.AddScoped<ScheduledCandidateSearch>();
         if (!configuration.GetValue<bool>("Background:Enabled")) return services;
         string connection = configuration.GetConnectionString("JobHunterAI")
             ?? throw new InvalidOperationException("ConnectionStrings:JobHunterAI is required for Hangfire.");
@@ -65,14 +76,17 @@ public static class BackgroundRegistration
         return services;
     }
 
-    public static void RegisterSchedules(IRecurringJobManager manager, bool enableAiJobs)
+    public static void RegisterSchedules(IRecurringJobManager manager, bool enableAiJobs, bool enableSearchPipeline = false)
     {
         RecurringJobOptions utc = new() { TimeZone = TimeZoneInfo.Utc };
+        if (enableSearchPipeline)
+            manager.AddOrUpdate("jobhunter-search-packages", Job.FromExpression<ScheduledCandidateSearch>(j => j.RunScheduledAsync(CancellationToken.None)), "15 */6 * * *", utc);
+        else manager.RemoveIfExists("jobhunter-search-packages");
         manager.AddOrUpdate("jobhunter-discover-jobs", Job.FromExpression<ScheduledJobs>(j => j.DiscoverJobsAsync(CancellationToken.None)), "0 */6 * * *", utc);
         manager.AddOrUpdate("jobhunter-cleanup-logs", Job.FromExpression<ScheduledJobs>(j => j.CleanupLogsAsync(CancellationToken.None)), "0 2 * * *", utc);
         manager.AddOrUpdate("jobhunter-monitor-applications", Job.FromExpression<ScheduledJobs>(j => j.MonitorApplicationsAsync(CancellationToken.None)), "0 * * * *", utc);
         manager.AddOrUpdate("jobhunter-daily-summary", Job.FromExpression<ScheduledJobs>(j => j.DailySummaryAsync(CancellationToken.None)), "0 8 * * *", utc);
-        if (enableAiJobs)
+        if (enableAiJobs && !enableSearchPipeline)
         {
             manager.AddOrUpdate("jobhunter-refresh-match-scores", Job.FromExpression<ScheduledJobs>(j => j.RefreshMatchScoresAsync(CancellationToken.None)), "0 3 * * *", utc);
             manager.AddOrUpdate("jobhunter-generate-resume-variants", Job.FromExpression<ScheduledJobs>(j => j.GenerateResumeVariantsAsync(CancellationToken.None)), "0 4 * * *", utc);
@@ -89,7 +103,7 @@ internal sealed class RecurringScheduleRegistration(IRecurringJobManager manager
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        BackgroundRegistration.RegisterSchedules(manager, options.Value.EnableAiJobs);
+        BackgroundRegistration.RegisterSchedules(manager, options.Value.EnableAiJobs, options.Value.EnableSearchPipeline);
         return Task.CompletedTask;
     }
 

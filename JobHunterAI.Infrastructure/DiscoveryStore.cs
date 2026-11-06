@@ -12,8 +12,22 @@ public sealed class DiscoverySources(IOptions<BackgroundOptions> options) : IDis
     public IReadOnlyList<DiscoverySource> Boards => options.Value.Boards.Select(x => new DiscoverySource(x.Provider, x.Board, x.CompanyId)).ToArray();
 }
 
-public sealed class DiscoveryStore(JobHunterDbContext db) : IDiscoveryStore
+public sealed class DiscoveryStore(JobHunterDbContext db) : IDiscoveryStore, IPublicJobStore
 {
+    public async Task<JobPosting> UpsertAsync(PublicJobListing listing, CancellationToken token)
+    {
+        string company = listing.CompanyName.Trim();
+        if (company.Length is 0 or > 200 || listing.Job.CompanyId !=
+            JobProviders.PublicFeedMapping.CompanyId(listing.Job.ProviderName, company))
+            throw new ArgumentException("Invalid feed employer identity.", nameof(listing));
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO public.companies ("Id", "Name", "WebsiteUrl")
+            VALUES ({listing.Job.CompanyId}, {company}, NULL)
+            ON CONFLICT ("Id") DO NOTHING
+            """, token);
+        return await UpsertJobAsync(listing.Job, token);
+    }
+
     public async Task CreateAsync(JobDiscoveryRun run, CancellationToken token)
     {
         db.Set<JobDiscoveryRun>().Add(run);
@@ -39,7 +53,7 @@ public sealed class DiscoveryStore(JobHunterDbContext db) : IDiscoveryStore
             VALUES ({job.Id}, {job.CompanyId}, {job.ProviderName}, {job.ExternalId}, {job.Title}, {job.Description},
                 {job.Location.City}, {job.Location.Country}, {job.Location.IsRemote}, {arrangement}, {job.ApplicationUrl}, {job.PostedAt})
             ON CONFLICT ("ProviderName", "ExternalId") DO UPDATE SET
-                "Title" = EXCLUDED."Title", "Description" = EXCLUDED."Description", "City" = EXCLUDED."City",
+                "CompanyId" = EXCLUDED."CompanyId", "Title" = EXCLUDED."Title", "Description" = EXCLUDED."Description", "City" = EXCLUDED."City",
                 "Country" = EXCLUDED."Country", "IsRemote" = EXCLUDED."IsRemote", "WorkArrangement" = EXCLUDED."WorkArrangement",
                 "ApplicationUrl" = EXCLUDED."ApplicationUrl"
             """, token);

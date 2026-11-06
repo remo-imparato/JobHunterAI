@@ -126,6 +126,52 @@ public sealed class CandidateSelectionTests
         });
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Package_ContextChangeDuringGenerationDiscardsOldResponse(bool changeJob)
+    {
+        await using Harness harness = new();
+        await harness.Renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            harness.Preferences.SelectCandidate(harness.Factory.Candidates[0]);
+            Guid job = Guid.NewGuid();
+            int page = await harness.Renderer.RenderAsync<Package>(new Dictionary<string, object?> { [nameof(Package.JobId)] = job });
+            var select = Assert.Single(harness.Renderer.Find<MudSelect<Guid>>(page));
+            await select.ValueChanged.InvokeAsync(harness.Factory.Source.Id);
+            TaskCompletionSource<HttpResponseMessage> delayed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            harness.Factory.Override = request =>
+            {
+                if (request.Method != HttpMethod.Post) return null;
+                started.TrySetResult();
+                return delayed.Task;
+            };
+            var generate = Assert.Single(harness.Renderer.Find<MudButton>(page), x => x.Variant == Variant.Filled && x.Color == Color.Primary);
+            Task oldRequest = generate.OnClick.InvokeAsync(new Microsoft.AspNetCore.Components.Web.MouseEventArgs());
+            await started.Task;
+            if (changeJob)
+            {
+                await harness.Renderer.UpdateAsync(page, new Dictionary<string, object?> { [nameof(Package.JobId)] = Guid.NewGuid() });
+                Assert.EndsWith("/resumes", harness.Factory.Requests[^1].AbsolutePath);
+            }
+            else
+            {
+                await select.ValueChanged.InvokeAsync(Guid.NewGuid());
+                Assert.EndsWith("/packages/selection", harness.Factory.Requests[^1].AbsolutePath);
+            }
+            Assert.False(Assert.Single(harness.Renderer.Find<MudSelect<Guid>>(page)).Disabled);
+            PackageView stale = new(Guid.NewGuid(), harness.Preferences.CandidateId, job, harness.Factory.Source.Id,
+                harness.Factory.Source.SourceVersionId!.Value, PackageStatus.Completed, "Old company", "Old job", "Old snapshot",
+                "https://example.invalid/job", "Old resume", "Old letter", null, null);
+            delayed.SetResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(stale) });
+            await oldRequest;
+            Assert.False(Assert.Single(harness.Renderer.Find<MudSelect<Guid>>(page)).Disabled);
+            if (changeJob) Assert.DoesNotContain(harness.Renderer.Find<MudButton>(page), button => button.Color == Color.Success);
+            else Assert.DoesNotContain(harness.Renderer.Find<MudButton>(page), button => button.Href?.Contains(stale.Id.ToString(), StringComparison.Ordinal) == true);
+        });
+    }
+
     private static async Task AssertRequestsAsync(Harness harness, Guid candidate)
     {
         await harness.Renderer.RenderAsync<DashboardOverview>();
@@ -195,6 +241,9 @@ public sealed class CandidateSelectionTests
             return id;
         }
 
+        public Task UpdateAsync(int componentId, Dictionary<string, object?> parameters) =>
+            RenderRootComponentAsync(componentId, ParameterView.FromDictionary(parameters));
+
         public IEnumerable<T> Find<T>(int componentId) where T : IComponent
         {
             var frames = GetCurrentRenderTreeFrames(componentId);
@@ -256,6 +305,7 @@ public sealed class CandidateSelectionTests
     private sealed class RecordingFactory : IHttpClientFactory
     {
         public List<Uri> Requests { get; } = [];
+        public Func<HttpRequestMessage, Task<HttpResponseMessage>?>? Override { get; set; }
         public Guid DiscoveryCandidate { get; set; }
         public DiscoveryRunSummary? DiscoveryRun { get; set; }
         public ResumeSummary Source { get; } = new(Guid.NewGuid(), "Uploaded", Guid.NewGuid(), "resume.docx", DateTimeOffset.UtcNow);
@@ -272,6 +322,8 @@ public sealed class CandidateSelectionTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             requests.Add(request.RequestUri!);
+            Task<HttpResponseMessage>? overridden = factory.Override?.Invoke(request);
+            if (overridden is not null) return overridden;
             if (request.RequestUri!.AbsolutePath.EndsWith("/resumes", StringComparison.Ordinal))
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new[] { factory.Source }) });
             if (request.RequestUri.AbsolutePath.Contains("/packages", StringComparison.Ordinal))

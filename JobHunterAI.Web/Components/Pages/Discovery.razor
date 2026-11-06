@@ -6,9 +6,10 @@
 
 <PageTitle>Find matching jobs — JobHunterAI</PageTitle>
 <MudText HtmlTag="h1" Typo="Typo.h4" Class="mb-4">Find matching jobs</MudText>
-<MudAlert Severity="Severity.Info" Class="mb-4">Searches saved postings and configured Greenhouse, Lever and Ashby boards using your saved criteria. This is not a whole-internet search. No AI calls, document generation or applications are triggered here.</MudAlert>
+<MudAlert Severity="Severity.Info" Class="mb-4">Searches saved postings, enabled Arbeitnow/RemoteOK feeds and configured Greenhouse, Lever and Ashby boards using your saved criteria. Search only does not call AI. Background search also drafts review packages when AI is configured and a source resume is selected. No applications are submitted.</MudAlert>
 <MudButton Href="/search-criteria" Class="mb-4">Edit search criteria</MudButton>
-<MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="StartAsync" Disabled="@(_busy || _loading)" Class="mb-4">Start search</MudButton>
+<MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="QueueAsync" Disabled="@(_busy || _loading)" Class="mb-4">Search and prepare packages in background</MudButton>
+<MudButton OnClick="StartAsync" Disabled="@(_busy || _loading)" Class="mb-4">Search only</MudButton>
 @if (_busy)
 {
     <MudButton Color="Color.Warning" OnClick="Cancel" Class="mb-4">Cancel search</MudButton>
@@ -71,6 +72,7 @@
     @if (details.Jobs.Count == 0)
     {
         <MudText Class="my-4">No matching jobs in this bounded run. Review criteria, source warnings, and configured boards.</MudText>
+        <MudAlert Severity="Severity.Info" Class="mb-4">All filter groups must pass: any title phrase, any configured location, a permitted work arrangement, every required keyword, and no excluded keyword. Matching is case-insensitive substring matching, not AI or synonym matching. Remote jobs still need to match configured locations. No application packages are generated when there are zero matches.</MudAlert>
     }
 }
 
@@ -87,6 +89,22 @@
     private string? _message;
 
     protected override Task OnInitializedAsync() => HistoryAsync(0);
+    private async Task QueueAsync()
+    {
+        if (_busy || _loading) return;
+        _loading = true;
+        _error = _message = null;
+        try
+        {
+            Guid runId = Guid.NewGuid();
+            QueuedDiscovery queued = await Client.QueueAsync(Preferences.CandidateId, runId, _lifetime.Token);
+            _lastRunId = queued.RunId;
+            _message = "Queued in the durable worker. You may close this page. Refresh history after the worker starts; search results appear before package drafting finishes. Open a matched job to review/download its package. Cancelling this page does not cancel the worker.";
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (IsRequestFailure(exception)) { ShowError(exception); }
+        finally { _loading = false; }
+    }
     private async Task HistoryAsync(int page)
     {
         if (_loading) return;

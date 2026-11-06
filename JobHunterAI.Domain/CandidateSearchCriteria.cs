@@ -8,6 +8,17 @@ public enum WorkArrangement
     OnSite = 4
 }
 
+[Flags]
+public enum JobFilterMismatch
+{
+    None = 0,
+    Title = 1,
+    Location = 2,
+    WorkArrangement = 4,
+    RequiredKeywords = 8,
+    ExcludedKeywords = 16
+}
+
 public sealed class CandidateSearchCriteria
 {
     private string[] _jobTitles = [];
@@ -52,6 +63,10 @@ public sealed class CandidateSearchCriteria
     }
 
     public bool Matches(string title, string? city, string? country, WorkArrangement? knownArrangement, string description)
+        => MismatchReasons(title, city, country, knownArrangement, description) == JobFilterMismatch.None;
+
+    /// <summary>Reports every failed filter without changing the strict AND matching semantics.</summary>
+    public JobFilterMismatch MismatchReasons(string title, string? city, string? country, WorkArrangement? knownArrangement, string description)
     {
         if (knownArrangement.HasValue && knownArrangement.Value is not (WorkArrangement.Remote or WorkArrangement.Hybrid or WorkArrangement.OnSite))
             throw new ArgumentException("Supply one known arrangement or null for unknown.", nameof(knownArrangement));
@@ -59,10 +74,13 @@ public sealed class CandidateSearchCriteria
             ? (Arrangements & knownArrangement.Value) != 0 : IncludeUnknownArrangement;
         string location = $"{city} {country}";
         string content = $"{title}\n{description}";
-        return arrangementMatches && _jobTitles.Any(term => title.Contains(term, StringComparison.OrdinalIgnoreCase)) &&
-            (_locations.Length == 0 || _locations.Any(term => location.Contains(term, StringComparison.OrdinalIgnoreCase))) &&
-            _requiredKeywords.All(term => content.Contains(term, StringComparison.OrdinalIgnoreCase)) &&
-            !_excludedKeywords.Any(term => content.Contains(term, StringComparison.OrdinalIgnoreCase));
+        JobFilterMismatch reasons = JobFilterMismatch.None;
+        if (!arrangementMatches) reasons |= JobFilterMismatch.WorkArrangement;
+        if (!_jobTitles.Any(term => title.Contains(term, StringComparison.OrdinalIgnoreCase))) reasons |= JobFilterMismatch.Title;
+        if (_locations.Length != 0 && !_locations.Any(term => location.Contains(term, StringComparison.OrdinalIgnoreCase))) reasons |= JobFilterMismatch.Location;
+        if (!_requiredKeywords.All(term => content.Contains(term, StringComparison.OrdinalIgnoreCase))) reasons |= JobFilterMismatch.RequiredKeywords;
+        if (_excludedKeywords.Any(term => content.Contains(term, StringComparison.OrdinalIgnoreCase))) reasons |= JobFilterMismatch.ExcludedKeywords;
+        return reasons;
     }
 
     private static string[] Normalize(IEnumerable<string> values, string name)
